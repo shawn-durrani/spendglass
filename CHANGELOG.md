@@ -4,7 +4,9 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
-### Initial public release
+## v0.1.0 (2026-08-06)
+
+First public release.
 
 - Read-only sync from the Redbark open-banking API into local SQLite
   (WAL), with idempotent upserts, an overlap re-fetch window, consent

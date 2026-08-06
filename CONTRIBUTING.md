@@ -56,3 +56,21 @@ improvements, and anything that makes the plain-English explainers
 plainer. Big new features are worth an issue discussion before code;
 the scope boundaries in ARCHITECTURE.md (notably: no investment-advice
 derivation) are deliberate.
+
+## Releasing
+
+Ordinary semantic versions in the 0.x range: no stability promise yet.
+`spendglass.__version__` is the single source.
+
+Before a tag, every box:
+
+- [ ] Suite green keyless: `.venv/bin/python -m pytest -q` with no API keys set
+- [ ] `pip-audit -r requirements.txt --strict` clean
+- [ ] `bash scripts/secret-scan.sh --tree` green. The bare command scans
+      only staged lines, so at release time it would scan nothing and
+      still report clean; `--tree` is the one that looks.
+- [ ] No real personal data in code, tests, docs or fixtures
+- [ ] Screenshots and any demo database come from a synthetic store only:
+      real merchant names and amounts are personal data
+- [ ] `__version__` bumped, CHANGELOG entry dated, fresh `## Unreleased`
+      left above it
