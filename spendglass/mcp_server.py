@@ -6,8 +6,9 @@ the SQLite file read-only (mode=ro — writes raise at the database layer)
 and serves its tools over stdio. If it's ever asked about money movement,
 the honest answer is structural: there is no such tool.
 
-Register (per machine):
-  claude mcp add -s user spendglass -- \
+Register (per machine; PYTHONPATH makes the package importable from any
+working directory, since nothing is pip-installed):
+  claude mcp add -s user spendglass -e PYTHONPATH=<repo> -- \
     <repo>/.venv/bin/python -m spendglass.mcp_server
 
 Every response carries `as_of` + `stale` + `staleness_warnings` — a stale

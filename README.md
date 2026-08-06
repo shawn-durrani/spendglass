@@ -76,7 +76,7 @@ run every N hours (admin setting, default 6) as subprocesses.
 ## Connect your agents (MCP)
 
 ```sh
-claude mcp add -s user spendglass -- <repo>/.venv/bin/python -m spendglass.mcp_server
+claude mcp add -s user spendglass -e PYTHONPATH=<repo> -- <repo>/.venv/bin/python -m spendglass.mcp_server
 ```
 
 Sixteen read-only tools (accounts, transaction search, spending
