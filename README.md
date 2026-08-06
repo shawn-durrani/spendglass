@@ -56,8 +56,9 @@ cd spendglass
 ```
 
 `start.sh` creates `.venv`, installs dependencies when they change,
-refuses a second instance on port **8903**, creates `.env` from the
-example on first run, and serves the UI at **http://127.0.0.1:8903**. It
+refuses a second instance on the port it is about to use, creates `.env`
+from the example on first run, and serves the UI at
+**http://127.0.0.1:8903**. Set `SPENDGLASS_UI_PORT` if 8903 is taken. It
 prints a **recovery secret** to the terminal; paste that on first visit
 to set a durable password, and after that you just log in. Set
 `SPENDGLASS_RECOVERY_SECRET` in `.env` to keep the secret stable, and
