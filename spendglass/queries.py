@@ -1,15 +1,22 @@
 """Read-only queries shared by the MCP server (and testable without it).
 
-Two hard guarantees, enforced structurally rather than by convention:
+Two properties the MCP layer leans on, each with its real limit stated:
 
-1. READ-ONLY: connections open with SQLite's mode=ro — any write attempt
-   raises OperationalError at the database layer, no matter what a caller
-   (or a confused model) asks for.
-2. FRESHNESS IS LOUD: every result dict carries `as_of` (when the store
-   last synced successfully) plus `stale` and `staleness_warnings`. A
-   consumer that ignores them was at least told.
+1. READ-ONLY, BY THE CODE FIRST: nothing in this module writes, and
+   open_readonly() hands out connections with SQLite's mode=ro, so a write
+   through one of those raises OperationalError no matter what a caller
+   (or a confused model) asks for. That is not a guarantee about the
+   process: freshness() below opens the store through Store, which is
+   read-write and runs migrations on connect. Treat mode=ro as a backstop
+   on the query path, not as a lock on the file.
+2. FRESHNESS IS LOUD: freshness() returns `as_of` (when the store last
+   synced successfully) plus `stale` and `staleness_warnings`, and the
+   server merges it into every tool response bar one. A consumer that
+   ignores them was at least told. The exception is store_health, which
+   returns the store's health record as-is: its own `stale` flag, but no
+   `as_of` and no `staleness_warnings`.
 
-All aggregation is SQL over integer cents — the model reads answers, it
+All aggregation is SQL over integer cents, so the model reads answers, it
 never does arithmetic.
 """
 
@@ -31,8 +38,10 @@ def open_readonly(db_path: Path | str) -> sqlite3.Connection:
 
 
 def freshness(db_path: Path | str) -> dict:
-    """The envelope every tool response carries."""
-    with Store(db_path) as s:  # Store opens read-write but only reads here
+    """The envelope the server merges into every tool response bar
+    store_health."""
+    # Store opens read-write and migrates on connect; this call only reads.
+    with Store(db_path) as s:
         h = s.health()
     warnings: list[str] = []
     as_of = None

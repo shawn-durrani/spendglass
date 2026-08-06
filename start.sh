@@ -35,4 +35,9 @@ if [ ! -f .env ]; then
   echo "  .venv/bin/python -m spendglass.sync"
 fi
 
+# .env holds live API keys, and cp above takes the umask (0644 on a default
+# setup), so tighten it. Unconditional and on every start, so an .env created
+# before this line existed gets repaired instead of staying world-readable.
+chmod 600 .env
+
 exec .venv/bin/python -m spendglass.ui

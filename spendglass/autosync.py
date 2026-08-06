@@ -5,9 +5,12 @@ would silently not exist for the next person who clones this. The UI server
 is already the long-running process, so a background thread checks once a
 minute whether the last successful sync is older than the configured
 interval and, when due, runs `python -m spendglass.sync` then
-`python -m spendglass.enrich` as SUBPROCESSES — the bank API key stays
-out of the server process, preserving the privilege split (sync.py owns the
-key and the network; this process only reads the store).
+`python -m spendglass.enrich` as SUBPROCESSES, which is what preserves the
+privilege split: sync.py reads `.env` itself and is the only code that
+calls the bank, so no bank API call is ever made from the server process.
+The honest limit is that the server's own Config.load() parses the whole of
+`.env` at startup, so the key does sit in its memory; what the split buys is
+that nothing there uses it.
 
 Status is written to the same `miner.status.sync` slot the admin panel
 reads, so scheduled and manual runs share one display. Interval is the

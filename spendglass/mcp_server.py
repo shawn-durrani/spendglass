@@ -1,18 +1,32 @@
-"""Local MCP server — read-only tools over the store, never the network.
+"""Local MCP server: read-only tools over the store, serving stdio.
 
-The privilege split that defines this repo: sync.py holds the API key and
-talks to Redbark; THIS process holds nothing and talks to nobody. It opens
-the SQLite file read-only (mode=ro — writes raise at the database layer)
-and serves its tools over stdio. If it's ever asked about money movement,
-the honest answer is structural: there is no such tool.
+The privilege split that defines this repo: sync.py is the only code that
+ever builds a Redbark client, so it is the only place the bank key is
+actually used. This process sits on the other side of that split. Its tool
+surface is read-only, no tool writes, a test pins the exact tool list, and
+nothing in its import graph makes a network call. So if it is ever asked
+about money movement, the answer is structural: there is no such tool.
+
+Three limits worth stating, so nobody relies on more than is here:
+
+- Config.load() runs at import and parses the whole of `.env`, so the bank
+  key does sit in this process's memory. What the split buys is narrower
+  than "this process holds nothing": it is that no code path here uses the
+  key. Anything that can read this process's memory has it.
+- Per-query connections open with mode=ro, but the freshness envelope
+  every response carries goes through queries.freshness(), which opens the
+  store through Store: read-write, running migrations on connect. Being
+  read-only is a property of the tools, not of the SQLite handle.
+- Every response but one carries `as_of` + `stale` + `staleness_warnings`,
+  so a stale store answers loudly rather than quietly. The exception is
+  store_health, which returns the store's health record as-is: it has its
+  own `stale` flag, the last sync run and per-connection warnings, but no
+  `as_of` and no `staleness_warnings` list.
 
 Register (per machine; PYTHONPATH makes the package importable from any
 working directory, since nothing is pip-installed):
   claude mcp add -s user spendglass -e PYTHONPATH=<repo> -- \
     <repo>/.venv/bin/python -m spendglass.mcp_server
-
-Every response carries `as_of` + `stale` + `staleness_warnings` — a stale
-store answers loudly, never quietly.
 """
 
 from __future__ import annotations
