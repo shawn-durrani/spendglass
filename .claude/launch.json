@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "spendglass-ui",
+      "runtimeExecutable": "./start.sh",
+      "runtimeArgs": [],
+      "port": 8903
+    }
+  ]
+}
