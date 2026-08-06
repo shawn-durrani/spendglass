@@ -153,7 +153,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         response.delete_cookie(COOKIE)
         return {"ok": True}
 
-    # ── read-only data endpoints ────────────────────────────────────────────
+    # ── data queries (GET only, nothing here writes) ────────────────────────
 
     @app.get("/api/health", dependencies=[Depends(require_session)])
     def health() -> dict:
@@ -296,7 +296,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         finally:
             con.close()
 
-    # ── merchant-identity review (the one write path — labels only) ─────────
+    # ── merchant-identity review (decisions written to merchant_lookups) ────
 
     @app.get("/api/lookups", dependencies=[Depends(require_session)])
     def lookups(status: str = "pending", q: str | None = None,
@@ -419,7 +419,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
                              daemon=True).start()
         return {"ok": True, "decided": len(decisions)}
 
-    # ── admin: miner settings + run-now (writes meta only) ──────────────────
+    # ── admin: settings + status in meta, keys in .env, run-now jobs ────────
 
     def _set_status(name: str, payload: dict) -> None:
         with Store(db_path) as s:
@@ -551,7 +551,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
                              daemon=True).start()
         return {"ok": True, "started": miner}
 
-    # ── visualisation data (read-only) ──────────────────────────────────────
+    # ── visualisation data (GET) and theme editing (writes theme tables) ────
     # Effective category: user override > identity-informed model > bank.
     _ECAT = ("COALESCE(ml.resolved_category, m.llm_category, m.cdr_category, "
              "t.category)")
