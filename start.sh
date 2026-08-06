@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Launcher — creates .venv, installs deps when they change, refuses to start a
-# second instance on port 8903, prints the recovery secret, serves the UI.
+# Launcher: creates .venv, installs deps when they change, refuses to start a
+# second instance on the port it is about to use, prints the recovery secret,
+# serves the UI.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PORT=8903
+# Same variable the server reads, so the conflict check, the message and
+# the bind can never disagree.
+PORT="${SPENDGLASS_UI_PORT:-8903}"
 
 if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "✖ port $PORT is already in use — spendglass is probably running." >&2
-  echo "  Open http://127.0.0.1:$PORT or stop the other instance first." >&2
+  echo "✖ port $PORT is already in use; spendglass is probably running." >&2
+  echo "  Open http://127.0.0.1:$PORT, stop the other instance, or set" >&2
+  echo "  SPENDGLASS_UI_PORT to a free port." >&2
   exit 1
 fi
 
