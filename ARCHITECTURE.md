@@ -1,9 +1,15 @@
 # Architecture
 
-Spendglass is small, and most of it could be rebuilt differently without
-anyone noticing. This page covers the handful of decisions that are
-settled — the ones the code is organised around, and that a change would
-have to argue with rather than drift past.
+Spendglass pulls your bank data through the Redbark API into a local
+SQLite file — raw transaction rows, upserted by source id and never
+edited — and derives everything else from them in SQL: merchant
+identities, transfer links, recurring charges, trends, themes. A
+loopback-only web UI and a read-only MCP server sit on top of that file,
+so local agents can query your finances without anything leaving the
+machine. Security is enforced by construction: the sync process that
+holds the bank key is short-lived and separate from the servers, the MCP
+layer opens the database read-only, and no code path can move money.
+Below are the decisions that are settled and unlikely to change.
 
 ## The shape
 
@@ -16,62 +22,59 @@ ui.py         — loopback web UI + spending page (reads store; writes labels)
 mcp_server.py — read-only tools over the store, never the network
 ```
 
-## Local-only is the product, not a deployment option
+## Local only
 
-Everything binds `127.0.0.1`. There is no remote mode, no cloud half, no
-telemetry, and the chart library is vendored so a page load fetches
-nothing from the internet. If a feature needs the data to leave the
-machine, it isn't a feature of this app.
+Everything binds `127.0.0.1`. There is no remote mode, no cloud
+component, no telemetry, and the chart library is vendored, so a page
+load fetches nothing from the internet. Remote access is permanently out
+of scope.
 
-## The bank key never enters a long-running process
+## The bank key stays in a short-lived process
 
-Syncing runs as a short-lived subprocess that reads `.env`, pulls,
-writes the store, and exits. The UI server and the MCP server never load
-the key. That is a process boundary, not a code-review promise: the
-server could be fully compromised and still not hold the credential.
+Syncing runs as a subprocess that reads `.env`, pulls, writes the store,
+and exits. The long-running UI and MCP servers never load the key, so
+even a fully compromised server process would not hold the bank
+credential.
 
-## Nothing here can move money
+## Nothing can move money
 
-The Redbark client has no non-GET path, so it cannot mutate anything
-upstream. The MCP server opens the database read-only at the SQLite
-layer (`mode=ro`), so a write raises no matter who asks — and its tool
-list is pinned by a test, so adding a tool is a reviewed decision rather
-than drift. The only writes in the whole app are labels: merchant
-identities, category corrections, themes.
+The Redbark client implements only GET requests, so it cannot change
+anything upstream. The MCP server opens the database read-only at the
+SQLite layer (`mode=ro`), and a test pins its exact tool list, so any
+new tool has to be added deliberately. The only writes in the app are
+labels: merchant identities, category corrections, and themes.
 
 ## Money math happens in SQL, in integer cents
 
-The store keeps the raw decimal string exactly as the bank sent it, plus
-integer cents. All aggregation runs in SQL over the cents column; models
-and browser code only read finished numbers. There is no code path in
-which a float — or a language model — does arithmetic on money.
+The store keeps the raw decimal string exactly as the bank sent it,
+plus integer cents. All aggregation runs in SQL over the cents column,
+and models and browser code only read the finished numbers, so neither
+floating-point arithmetic nor a language model ever computes an amount.
 
-## Raw rows are the record; everything else is disposable
+## Raw rows are the system of record
 
 Bank rows are upserted idempotently by source id and never edited. Every
-derived table (merchant keys, recurring charges, transfer links, trend
-devices) can be deleted and rebuilt from the raw rows, and rebuilds are
-wholesale, never patched in place; user decisions are carried across by
-migration. The corollary runs both ways: a database written by newer
-code is refused, never "fixed".
+derived table — merchant keys, recurring charges, transfer links, trend
+data — can be deleted and rebuilt from the raw rows, and user decisions
+are carried across rebuilds by migration. A database written by newer
+code is refused rather than migrated downward.
 
-## Everything deterministic works without an AI key
+## Deterministic features work without an AI key
 
 Merchant identification uses a model; nothing else does. With no key
 configured, sync, transfer matching, recurring detection, trends,
-themes, and backups all work, and the entire test suite passes — CI runs
-keyless on purpose. Intelligence is an enhancement, never a dependency.
+themes, and backups all run normally, and the full test suite passes.
+CI runs without credentials to keep it that way.
 
-## Freshness is part of the data model
+## Freshness is tracked and reported
 
-The natural failure mode of a local store is quiet: sync stops, and
-agents keep answering confidently from old data. So freshness is part of
-the data model — every MCP response carries `as_of` and `stale` with
-warnings, and the UI banner shows when the store last synced and last
-backed up.
+If sync stops, agents would otherwise keep answering from old data
+without anyone noticing. Every MCP response therefore carries `as_of`
+and `stale` fields with warnings, and the UI banner shows the last sync
+and the last backup.
 
-## One deliberate absence: investment advice
+## No investment advice
 
-The API can serve holdings and trades, and the store syncs them. No
-analytics are derived from them. "Ways to improve your portfolio" is
-regulated advice; staying out is a scope decision, not a gap.
+The API can serve holdings and trades and the store syncs them, but no
+analytics are derived from them, because recommendations about a
+portfolio are regulated financial advice.
