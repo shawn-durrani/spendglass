@@ -1,0 +1,51 @@
+# Secrets and machine-local config
+.env
+config.local.json
+# Personal-content deny-list for scripts/secret-scan.sh — the list itself is
+# personal data. Committed template: secret-scan-local.example.
+.secret-scan-local
+# ...and any editor/backup spinoff of them: the base name is ignored but
+# `config.local.json.bak` / `.env.save` etc. are NOT, so a `git add -A` could
+# commit personal paths and credentials.
+config.local.json.*
+.env.*
+# The sanctioned exceptions: committed synthetic templates, no real values.
+!.env.example
+!config.local.json.example
+
+# The store itself — this is the whole point of the repo, and none of it is ours
+# to publish. SQLite keeps two sidecars alongside the db; all three must go.
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Runtime droppings
+*.log
+.lock
+*.pid
+
+# Python
+.venv/
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+
+# Node (only if a UI lands here)
+node_modules/
+dist/
+
+# Agent scratch — settings.local.json is per-machine; a shared .claude/settings.json
+# or launch.json is deliberately committable.
+.claude/settings.local.json
+CLAUDE.local.md
+
+# macOS
+.DS_Store

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Auto-runs the secret scan before every commit.
+# Enable once per clone:  git config core.hooksPath .githooks
+exec "$(git rev-parse --show-toplevel)/scripts/secret-scan.sh"
