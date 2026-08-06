@@ -1,4 +1,4 @@
-"""Local admin UI — read-only, loopback-only, password-protected.
+"""Local admin UI: loopback-only, password-protected, mostly reading.
 
 One page served at http://127.0.0.1:8903 — login/setup and the transaction
 table are the same document; JS switches views off /api/session. Every
@@ -10,10 +10,21 @@ Security posture:
   allowlist as DNS-rebinding defense.
 - POSTs reject cross-site callers via Sec-Fetch-Site when the browser
   sends it; the session cookie is HttpOnly + SameSite=Strict.
-- One deliberate exception to "nothing here writes": merchant-identity
-  decisions (/api/lookups/decide) update the derived merchant_lookups side
-  table — labels only, never transactions, balances, or anything the bank
-  said. The bank data itself still has no write path.
+- This surface writes. Do not describe it as read-only. The write paths,
+  none of which edit what the bank sent:
+  * labels: merchant-identity decisions (/api/lookups/decide) into the
+    derived merchant_lookups table, and theme names and rules
+    (/api/themes and friends);
+  * operator settings (/api/admin/config) and the miner status rows a run
+    records (/api/admin/run), both in `meta`;
+  * provider keys (/api/admin/key), written into `.env` at 0600 after the
+    key is sent to that provider once to validate it;
+  * the password record (/api/setup) in data/ui_auth.json and session
+    digests (/api/login, /api/logout) in data/ui_sessions.json.
+  The one column the app writes on a bank row is the derived
+  transactions.merchant_key, set by the enrichment miner. Balances,
+  amounts, dates, descriptions and every other field the bank sent are
+  written only by sync.py, which a run-now sync launches as a subprocess.
 """
 
 from __future__ import annotations
@@ -498,9 +509,9 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
 
     @app.post("/api/admin/key", dependencies=[Depends(require_session)])
     async def admin_key(request: Request) -> dict:
-        """Validate-then-persist a provider key. The key is checked against
-        the provider before saving, then written to .env on this machine.
-        It never leaves this machine and is never shown back."""
+        """Validate-then-persist a provider key. Saving sends the key to
+        that provider once to check it works, and writes it to .env at 0600
+        only if the check passes. It is never logged or shown back."""
         body = await request.json()
         return capabilities.save_key(str(body.get("service") or ""),
                                      str(body.get("key") or ""))
@@ -524,7 +535,10 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             except ValueError:
                 pass
         if miner == "sync":
-            # Subprocess-based: the bank key never enters this process.
+            # Runs as a subprocess that reads .env itself, so the bank is
+            # never called from this process. (Config.load() at startup
+            # does put the key in this process's memory; nothing here
+            # uses it.)
             def _sync_bg() -> None:
                 from . import autosync
                 try:
@@ -1129,8 +1143,9 @@ tr:hover td{background:var(--accent-soft)}
   <div id="main" class="hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline">
       <div><h1>redbark-<span class="bark">local</span>-store</h1>
-      <p class="sub">Your bank transactions, stored locally, read-only. This page cannot
-      move money or touch bank data — the only thing it can change is merchant labels.</p></div>
+      <p class="sub">Your bank transactions, stored on this machine. This page cannot move
+      money, and it never edits what your bank sent. What it does change: merchant labels
+      and themes, your settings, and the provider keys you save.</p></div>
       <div class="topright"><a class="link" href="/viz" style="text-decoration:none">spending</a><button class="link" onclick="toggleAdmin()">admin</button><button class="link" id="review-btn" onclick="toggleReview()">review</button><label class="visually-hidden" for="theme">Colour theme</label><select id="theme" class="theme-pick" aria-label="Colour theme"><option value="zinc">Zinc</option><option value="midnight">Midnight</option><option value="espresso">Espresso</option><option value="oled">OLED</option><option value="light">Light</option></select><button class="link" onclick="doLogout()">Lock</button></div>
     </div>
     <div class="card banner" id="banner">loading…</div>
@@ -1156,9 +1171,10 @@ tr:hover td{background:var(--accent-soft)}
           <p class="sub" id="ad-data"></p>
           <h3 style="margin-top:18px">Connections</h3>
           <div id="ad-caps"></div>
-          <p class="sub">Keys are checked against the provider before saving, then
-          written to <code>.env</code> on this machine. They never leave this
-          machine and are never shown back.</p>
+          <p class="sub">Saving a key sends it to that provider once to check it
+          works, then writes it to <code>.env</code> on this machine (owner-only,
+          0600) if the check passes. It is never shown back here. The miners send
+          it to the provider each time they run.</p>
         </div>
       </div>
       <h3 style="margin-top:18px">Spending themes</h3>

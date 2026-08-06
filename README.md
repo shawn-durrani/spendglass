@@ -16,13 +16,16 @@ remote mode to misconfigure.
 - **Your data never leaves the machine.** The server binds `127.0.0.1`
   only. There is no cloud component, no telemetry, no account with us.
 - **Nothing here can move money.** The sync is read-only at the API layer
-  (the client has no non-GET path), and the MCP server opens the database
-  read-only at the SQLite layer, so a write raises no matter who asks.
-  The only thing the UI can change is labels: merchant names, categories,
-  and themes.
-- **The bank key never enters the server.** Syncing runs as a separate
-  short-lived process; the long-running UI and MCP processes never hold
-  the Redbark key.
+  (the client has no non-GET path), and the MCP server's *tool surface* is
+  read-only: no tool writes anything, and a test pins the exact tool list,
+  so a write path cannot appear by accident. The UI cannot change bank
+  data at all. What it does write is labels (merchant names, categories,
+  themes) plus operator settings and provider keys.
+- **Only the sync process talks to your bank.** `sync.py` is the only
+  code that ever uses the Redbark key, and it runs as a separate
+  short-lived process. The long-running UI and MCP servers do read `.env`
+  at startup, so the key is present in their memory; what they never do is
+  call the bank with it.
 - **It works without an AI key.** Every deterministic feature (sync,
   transfers, recurring detection, trends, themes, backups) runs with no
   model configured. An Anthropic key adds merchant identification, and
@@ -45,7 +48,9 @@ I looking at?" explainer.
   in their dashboard, and Spendglass only ever reads through them. Data
   is AUD-flavoured and CDR-shaped (16 fixed bank categories, 12-month
   consents).
-- Optional: an Anthropic API key for merchant identification.
+- Optional: an Anthropic API key for merchant identification, set as
+  `ANTHROPIC_API_KEY` in `.env` (the admin panel can also save it there
+  for you, after checking it against the API).
 
 ## Quick start
 
@@ -57,12 +62,26 @@ cd spendglass
 
 `start.sh` creates `.venv`, installs dependencies when they change,
 refuses a second instance on the port it is about to use, creates `.env`
-from the example on first run, and serves the UI at
-**http://127.0.0.1:8903**. Set `SPENDGLASS_UI_PORT` if 8903 is taken. It
-prints a **recovery secret** to the terminal; paste that on first visit
-to set a durable password, and after that you just log in. Set
-`SPENDGLASS_RECOVERY_SECRET` in `.env` to keep the secret stable, and
-`SPENDGLASS_DEV=1` for auto-reload during development.
+from the example on first run and tightens it to `0600` on every run, and
+serves the UI at **http://127.0.0.1:8903**. It prints a **recovery
+secret** to the terminal; paste that on first visit to set a durable
+password, and after that you just log in. Set
+`SPENDGLASS_RECOVERY_SECRET` in `.env` to keep the secret stable.
+
+**Two settings are environment-only.** `start.sh` execs the server
+without sourcing `.env`, and `SPENDGLASS_UI_PORT` and `SPENDGLASS_DEV`
+are read from the process environment alone, so putting them in `.env`
+does nothing. Pass them on the command line instead:
+
+```sh
+SPENDGLASS_UI_PORT=8904 ./start.sh   # if 8903 is taken
+SPENDGLASS_DEV=1 ./start.sh          # auto-reload during development
+```
+
+Every other variable named in this README (`REDBARK_API_KEY`,
+`ANTHROPIC_API_KEY`, `SPENDGLASS_RECOVERY_SECRET`, and the backfill and
+backup settings) is read from `.env` as well as the environment, with the
+environment winning.
 
 Add your Redbark key to `.env`, then pull data:
 
@@ -85,8 +104,11 @@ summaries, recurring charges, health, eight trend devices, themes, and
 subscriptions), with all money arithmetic done in SQL integer cents; the
 model only reads answers. The tool list is pinned by a test: adding a
 tool is a reviewed decision, because the tool surface is the security
-surface. Every response carries `as_of` and `stale` flags, so a stale
-store answers loudly, never quietly.
+surface. Every response but one carries `as_of` and `stale` flags, so a
+stale store answers loudly, never quietly. The exception is
+`store_health`, which returns the store's own health record: it has its
+own `stale` flag, the last sync run, and per-connection warnings, but no
+`as_of`.
 
 ## Merchant identity
 
@@ -101,9 +123,12 @@ show how each label was established (✦ agent, ✓ human, ? pending).
 **What the miners cost** (they use *your* Anthropic key): the lookup agent
 is the expensive one (a capable model plus billed web searches per unclear
 merchant); the sweep and classifier use a small model via the Batch API
-(cheap); everything else is deterministic SQL and costs nothing.
-Discovery is front-loaded: once coverage is built, only new merchants
-trigger lookups.
+(cheap); and every batch of approvals you submit in the review queue fires
+one more small non-batch request, the propagation pass that re-guesses
+related pending proposals (on by default; switch it off in the admin
+panel). Everything else is deterministic SQL and costs nothing. Discovery
+is front-loaded: once coverage is built, only new merchants trigger
+lookups.
 
 ## What counts as spend
 
@@ -157,4 +182,5 @@ The design rules behind all of this live in
 
 ## Licence
 
-[MIT](LICENSE).
+[MIT](LICENSE). One third-party component ships in this repository under
+a different licence: see [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md).
