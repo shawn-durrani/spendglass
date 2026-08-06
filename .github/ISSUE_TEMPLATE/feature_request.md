@@ -10,7 +10,7 @@ labels: enhancement
 
 **Fit check**
 
-Have a skim of [ARCHITECTURE.md](../../blob/main/ARCHITECTURE.md) — the
+Have a skim of [ARCHITECTURE.md](../../blob/main/ARCHITECTURE.md): the
 scope boundaries there (local-only; read-only tools; no investment-advice
 derivation) are deliberate, and the strongest proposals work with them
 rather than around them.

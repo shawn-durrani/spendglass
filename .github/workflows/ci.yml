@@ -15,6 +15,6 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       # Keyless on purpose: the suite must pass with no REDBARK_API_KEY (or any
-      # other key) present — every network call is mocked, staleness degrades
+      # other key) present: every network call is mocked, staleness degrades
       # loudly, never silently.
       - run: python -m pytest tests/ -q

@@ -1,8 +1,8 @@
 # Architecture
 
 Spendglass pulls your bank data through the Redbark API into a local
-SQLite file — raw transaction rows, upserted by source id and never
-edited — and derives everything else from them in SQL: merchant
+SQLite file (raw transaction rows, upserted by source id and never
+edited) and derives everything else from them in SQL: merchant
 identities, transfer links, recurring charges, trends, themes. A
 loopback-only web UI and a read-only MCP server sit on top of that file,
 so local agents can query your finances without anything leaving the
@@ -14,12 +14,12 @@ Below are the decisions that are settled and unlikely to change.
 ## The shape
 
 ```
-client.py     — the only code that talks to the Redbark API or holds its key
-store.py      — SQLite (WAL) under data/; idempotent upserts; system of record
-sync.py       — pull: client → store, run as its own short-lived process
-enrich / transfers / themes / subscriptions / trends — derivation, in SQL
-ui.py         — loopback web UI + spending page (reads store; writes labels)
-mcp_server.py — read-only tools over the store, never the network
+client.py     - the only code that talks to the Redbark API or holds its key
+store.py      - SQLite (WAL) under data/; idempotent upserts; system of record
+sync.py       - pull: client to store, run as its own short-lived process
+enrich / transfers / themes / subscriptions / trends - derivation, in SQL
+ui.py         - loopback web UI + spending page (reads store; writes labels)
+mcp_server.py - read-only tools over the store, never the network
 ```
 
 ## Local only
@@ -44,7 +44,7 @@ SQLite layer (`mode=ro`), and a test pins its exact tool list, so any
 new tool has to be added deliberately. The only writes in the app are
 labels: merchant identities, category corrections, and themes.
 
-## Money math happens in SQL, in integer cents
+## Money maths happens in SQL, in integer cents
 
 The store keeps the raw decimal string exactly as the bank sent it,
 plus integer cents. All aggregation runs in SQL over the cents column,
@@ -54,8 +54,8 @@ floating-point arithmetic nor a language model ever computes an amount.
 ## Raw rows are the system of record
 
 Bank rows are upserted idempotently by source id and never edited. Every
-derived table — merchant keys, recurring charges, transfer links, trend
-data — can be deleted and rebuilt from the raw rows, and user decisions
+derived table (merchant keys, recurring charges, transfer links, trend
+data) can be deleted and rebuilt from the raw rows, and user decisions
 are carried across rebuilds by migration. A database written by newer
 code is refused rather than migrated downward.
 

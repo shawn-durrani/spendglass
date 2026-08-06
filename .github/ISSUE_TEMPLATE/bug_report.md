@@ -20,5 +20,5 @@ labels: bug
 
 > ⚠️ Redact before pasting: terminal output can include your recovery
 > secret (first-run banner), and never paste real transactions, account
-> names, or merchant lists — reproduce with synthetic data where possible
+> names, or merchant lists; reproduce with synthetic data where possible
 > (`tests/conftest.py` shows the style).

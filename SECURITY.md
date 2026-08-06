@@ -13,25 +13,25 @@ Spendglass is a **local-only** application handling **read-only** copies
 of financial data:
 
 - The server binds `127.0.0.1` exclusively, with a Host-header allowlist
-  as DNS-rebinding defense; cross-site POSTs are rejected.
+  as DNS-rebinding defence; cross-site POSTs are rejected.
 - The UI is password-protected (scrypt-hashed; sessions stored as SHA-256
-  digests — the file on disk never contains a usable credential).
+  digests, so the file on disk never contains a usable credential).
 - The bank API key lives in `.env` (0600, gitignored) and is only ever
-  read by the short-lived sync subprocess — never the long-running
+  read by the short-lived sync subprocess, never the long-running
   server, never the MCP process.
 - The MCP server opens the database read-only at the SQLite layer and
   exposes a pinned, test-enforced list of read-only tools.
 - No telemetry, no remote endpoints at runtime beyond the two APIs you
   configure (Redbark for bank data; Anthropic, optional, for merchant
-  identification — which receives merchant descriptors, never balances
+  identification, which receives merchant descriptors, never balances
   or account data).
 
-**In scope:** anything that breaks the properties above — a network
+**In scope:** anything that breaks the properties above: a network
 listener beyond loopback, a write path through the MCP surface, key
 leakage into logs or responses, an auth bypass.
 
 **Out of scope:** attacks requiring an already-compromised local machine
-or physical access — a local attacker with your user account can read
+or physical access; a local attacker with your user account can read
 `data/` directly, which is the same trust boundary as any local file.
 
 ## Operational notes

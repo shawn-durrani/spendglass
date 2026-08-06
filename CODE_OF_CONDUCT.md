@@ -7,7 +7,7 @@ not tolerated; disagreements are about code and ideas, never people. This
 applies in issues, PRs, discussions, and anywhere you're representing the
 project.
 
-**Reporting:** contact the maintainer privately via GitHub — the
+**Reporting:** contact the maintainer privately via GitHub: the
 repository's *Report a vulnerability* channel works for conduct reports
 too, or reach out through the profile at
 [@shawn-durrani](https://github.com/shawn-durrani). Reports are handled
