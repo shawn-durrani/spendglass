@@ -63,10 +63,28 @@ cd spendglass
 `start.sh` creates `.venv`, installs dependencies when they change,
 refuses a second instance on the port it is about to use, creates `.env`
 from the example on first run and tightens it to `0600` on every run, and
-serves the UI at **http://127.0.0.1:8903**. It prints a **recovery
-secret** to the terminal; paste that on first visit to set a durable
-password, and after that you just log in. Set
-`SPENDGLASS_RECOVERY_SECRET` in `.env` to keep the secret stable.
+serves the UI at **http://127.0.0.1:8903**.
+
+**Passwords and the recovery secret, in plain English.** There are two
+credentials and each has one job. Your **password** is what you log in
+with every day. The **recovery secret** exists only to prove it is you
+at the two moments a password cannot: the very first setup, and a reset
+after you forget the password.
+
+- **First start:** the terminal prints the recovery secret in full.
+  Paste it on the first visit to set your password. Until a password
+  exists, every start prints a usable secret, so missing it just means
+  look again after a restart.
+- **After that:** the secret is never printed again (a printed secret
+  would pile up in server logs), and you never need it for normal use.
+- **Forgot your password?** You do not retrieve the old secret - you
+  choose a new one. Put `SPENDGLASS_RECOVERY_SECRET=anything-you-pick`
+  in `.env`, restart, and use the reset form with that value. Being
+  able to edit `.env` on this machine is what proves it is you.
+
+Setting `SPENDGLASS_RECOVERY_SECRET` in `.env` up front also works and
+keeps the secret stable from day one; the startup banner will say one
+is configured without printing it.
 
 **Two settings are environment-only.** `start.sh` execs the server
 without sourcing `.env`, and `SPENDGLASS_UI_PORT` and `SPENDGLASS_DEV`
