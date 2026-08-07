@@ -73,6 +73,43 @@ SORT_COLUMNS = {
 }
 
 
+def _secure_store_dir(store_dir: Path) -> None:
+    """Owner-only store directory. It holds the DB, the auth records, and -
+    when stdout is redirected there - the service log with any pre-enrolment
+    banner, so the whole directory is the sensitive unit (the same posture
+    Membro takes with its data/)."""
+    try:
+        os.chmod(store_dir, 0o700)
+    except OSError:
+        pass  # a read-only or foreign mount: the app still runs
+
+
+def startup_banner(*, first_run: bool, secret_configured: bool, port,
+                   secret: str) -> list[str]:
+    """The startup banner, secret-safe after enrolment (issue #2).
+
+    The full recovery secret appears ONLY on a true first run - the one
+    moment the user genuinely needs to see it, before anything is enrolled.
+    After that it must never hit stdout again: redirected logs accumulate it
+    in plaintext, and a pasted server log (bug report, screen share) would
+    leak it. Later starts say only which kind of secret is in force and how
+    to reset a forgotten password."""
+    bar = "─" * 64
+    if first_run:
+        return [bar,
+                f"First run: open http://127.0.0.1:{port} and set a password.",
+                f"RECOVERY SECRET (needed for that first-run setup): {secret}",
+                bar]
+    which = ("configured (SPENDGLASS_RECOVERY_SECRET)"
+             if secret_configured else "random this start, not shown")
+    return [bar,
+            f"Open http://127.0.0.1:{port} and log in with your password.",
+            f"Recovery secret: {which}. Forgot the password? Set "
+            f"SPENDGLASS_RECOVERY_SECRET in .env, restart, and use the "
+            f"reset form.",
+            bar]
+
+
 def create_app(db_path: Path, auth: Auth, propagator=None,
                backup_interval_hours: float | None = None) -> FastAPI:
     """`propagator(confirmed_decisions)` runs after approvals on a background
@@ -896,13 +933,11 @@ def build_app() -> FastAPI:
         auth_file=cfg.db_path.parent / "ui_auth.json",
         recovery_secret=secret,
     )
-    print("─" * 64, flush=True)
-    if auth.first_run:
-        print(f"First run: open http://127.0.0.1:{PORT} and set a password.")
-    else:
-        print(f"Open http://127.0.0.1:{PORT} and log in with your password.")
-    print(f"RECOVERY SECRET (first-run setup / password reset): {auth.recovery_secret}", flush=True)
-    print("─" * 64, flush=True)
+    _secure_store_dir(cfg.db_path.parent)
+    for line in startup_banner(first_run=auth.first_run,
+                               secret_configured=bool(secret),
+                               port=PORT, secret=auth.recovery_secret):
+        print(line, flush=True)
 
     def live_propagator(confirmed: list[dict]) -> None:
         # Best-effort: a confirmed identity often informs other pendings
