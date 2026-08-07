@@ -4,6 +4,12 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- The recovery secret prints only on a true first run, before a password
+  is enrolled. Later starts print a redacted status line naming which
+  kind of secret is in force and how to reset a forgotten password, so
+  redirected server logs stop accumulating the secret in plaintext. The
+  store directory also goes owner-only (0700) at startup.
+
 ## v0.1.1 (2026-08-07)
 
 - start.sh now restores .env to owner-only permissions (0600) on every

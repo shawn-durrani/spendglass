@@ -58,8 +58,13 @@ or physical access; a local attacker with your user account can read
 
 ## Operational notes
 
-- The startup banner prints the recovery secret on first run so you can
-  enroll a password. Treat terminal output and server logs as sensitive;
-  don't paste them into public issues unredacted.
+- The startup banner prints the recovery secret only on a true first
+  run, before a password is enrolled; later starts print a redacted
+  status line instead. A log captured before enrolment may still carry
+  that first banner, so treat terminal output and server logs as
+  sensitive; don't paste them into public issues unredacted. To reset a
+  forgotten password, set `SPENDGLASS_RECOVERY_SECRET` in `.env` and
+  restart; the banner will name it without printing it.
 - `data/` in its entirety is sensitive: the store, its WAL/SHM sidecars,
-  backups, and logs all live there, and all are gitignored.
+  backups, and logs all live there, all gitignored, and the app makes
+  the directory owner-only (0700) at startup.

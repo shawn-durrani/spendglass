@@ -326,3 +326,43 @@ def test_viz_page_teaches_empty_themes():
     from spendglass.ui import PAGE_VIZ
     assert "No themes yet" in PAGE_VIZ           # honest empty state ships
     assert "quickTheme" in PAGE_VIZ              # with one-click templates
+
+
+# ── issue #2: the recovery secret leaves stdout after enrolment ────────────
+
+def test_banner_shows_secret_only_on_first_run():
+    """The full secret appears exactly once in a store's life: before
+    anything is enrolled. Every later start must not carry it - redirected
+    logs accumulate, and a pasted log would leak a stable secret."""
+    from spendglass.ui import startup_banner
+    secret = "s3cr3t-value-xyz"
+    first = "\n".join(startup_banner(first_run=True, secret_configured=False,
+                                     port=8903, secret=secret))
+    later = "\n".join(startup_banner(first_run=False, secret_configured=False,
+                                     port=8903, secret=secret))
+    assert secret in first
+    assert secret not in later
+    assert "random this start" in later
+
+
+def test_banner_names_the_configured_secret_without_printing_it():
+    """With SPENDGLASS_RECOVERY_SECRET set, the redacted line says so (the
+    operator knows where it lives) and still never prints the value."""
+    from spendglass.ui import startup_banner
+    secret = "durable-secret-abc"
+    later = "\n".join(startup_banner(first_run=False, secret_configured=True,
+                                     port=8903, secret=secret))
+    assert secret not in later
+    assert "SPENDGLASS_RECOVERY_SECRET" in later
+
+
+def test_store_dir_becomes_owner_only(tmp_path):
+    """The store directory is the sensitive unit: DB, auth records, and any
+    redirected service log live there, so it goes owner-only at startup."""
+    import stat
+    from spendglass.ui import _secure_store_dir
+    d = tmp_path / "store"
+    d.mkdir()
+    (d / "x").write_text("data")
+    _secure_store_dir(d)
+    assert stat.S_IMODE(d.stat().st_mode) == 0o700
