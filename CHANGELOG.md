@@ -4,6 +4,16 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+## v0.1.1 (2026-08-07)
+
+- start.sh now restores .env to owner-only permissions (0600) on every
+  start. Previously a fresh write could leave the file readable by
+  other local users (0644) until the next manual fix.
+- Docs and source no longer describe the app as read-only with one
+  write path: module docstrings, UI strings and section headers now
+  match the real write surface (the store is written by sync,
+  enrichment, review decisions, themes, admin settings and auth).
+
 ## v0.1.0 (2026-08-06)
 
 First public release.
