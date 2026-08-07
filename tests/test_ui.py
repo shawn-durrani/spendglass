@@ -79,7 +79,7 @@ def test_restart_keeps_sessions(ui, tmp_path):
 
 
 def test_lookup_review_flow(ui):
-    """The one write path: list proposals, approve/override/reject in bulk;
+    """Lookup review flow: list proposals, approve/override/reject in bulk;
     decisions land in merchant_lookups only."""
     from spendglass.lookup import ensure_schema
     from spendglass.store import Store
@@ -258,8 +258,8 @@ def test_sort_by_amount(ui):
     assert cents == sorted(cents)
 
 
-def test_no_write_path_exists(ui):
-    """The read-only invariant: no mutating method on any data endpoint."""
+def test_query_endpoints_reject_mutating_methods(ui):
+    """Query endpoints take GET only: mutating methods are refused with 405."""
     client, _ = ui
     _enroll(client)
     for path in ("/api/transactions", "/api/health", "/api/accounts"):
