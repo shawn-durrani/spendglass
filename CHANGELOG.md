@@ -4,6 +4,15 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- The store directory's contents go owner-only on every start (0600
+  files, 0700 subdirectories, backups included), not just the directory
+  itself — a restored or copied store arrives with default permissions,
+  and startup now repairs it. If you ran a pre-#2 build with stdout
+  redirected into the store directory, that log can still hold a
+  then-current recovery secret: rotate SPENDGLASS_RECOVERY_SECRET and
+  redact or delete the old log, since permissions don't un-leak a value
+  already written.
+
 - Dates display in Australian day-first format (06/08/2026) everywhere
   the UI shows one: the transaction table, drill-downs, renewal dates
   and anomaly call-outs, plus row copies. Sorting and filtering still
