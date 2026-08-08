@@ -1143,7 +1143,8 @@ tr:hover td{background:var(--accent-soft)}
       color:var(--muted);border:1px solid var(--line);border-radius:6px}
 .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
       white-space:nowrap}
-.topright{display:flex;align-items:center;gap:8px}
+.topright{display:flex;align-items:center;gap:8px;flex:none;white-space:nowrap;padding-top:6px}
+.topright .link{white-space:nowrap}
 .hidden{display:none}
 </style></head><body>
 <script>
@@ -1176,7 +1177,7 @@ tr:hover td{background:var(--accent-soft)}
   </div>
 
   <div id="main" class="hidden">
-    <div style="display:flex;justify-content:space-between;align-items:baseline">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
       <div><h1>spend<span class="bark">glass</span></h1>
       <p class="sub">Your bank transactions, stored on this machine. This page cannot move
       money, and it never edits what your bank sent. What it does change: merchant labels
@@ -1999,7 +2000,8 @@ h2{font-size:15px;margin:0;color:var(--muted);font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
       padding:18px;margin-bottom:14px}
 .topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px}
-.topright{display:flex;align-items:center;gap:12px}
+.topright{display:flex;align-items:center;gap:12px;flex:none;white-space:nowrap}
+.topright .link{white-space:nowrap}
 a.link,button.link{background:none;border:0;color:var(--muted);cursor:pointer;
       font:inherit;font-size:13px;text-decoration:none;padding:4px}
 a.link:hover,button.link:hover{color:var(--accent)}
