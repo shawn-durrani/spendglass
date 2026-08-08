@@ -74,14 +74,31 @@ SORT_COLUMNS = {
 
 
 def _secure_store_dir(store_dir: Path) -> None:
-    """Owner-only store directory. It holds the DB, the auth records, and -
-    when stdout is redirected there - the service log with any pre-enrolment
-    banner, so the whole directory is the sensitive unit (the same posture
-    Membro takes with its data/)."""
-    try:
-        os.chmod(store_dir, 0o700)
-    except OSError:
-        pass  # a read-only or foreign mount: the app still runs
+    """Owner-only store directory - contents included. It holds the DB, the
+    auth records, and - when stdout is redirected there - the service log with
+    any pre-enrolment banner, so the whole directory is the sensitive unit
+    (the same posture Membro takes with its data/).
+
+    The contents are tightened too, not just the directory bit: backup
+    snapshots inherit the source file's mode via copy2, and a restore or
+    cp -r re-creates everything with default permissions - the 0700 bit
+    protecting loose files inside is exactly what a copy loses. Runs on
+    every start - repair rather than trust, like start.sh does for .env
+    (issue #23). Symlinks are skipped: chmod would follow them out of the
+    store dir."""
+    def tighten(path: Path, mode: int) -> None:
+        try:
+            if not path.is_symlink():
+                os.chmod(path, mode)
+        except OSError:
+            pass  # a read-only or foreign mount: the app still runs
+
+    tighten(store_dir, 0o700)
+    for root, dirs, files in os.walk(store_dir):
+        for name in dirs:
+            tighten(Path(root) / name, 0o700)
+        for name in files:
+            tighten(Path(root) / name, 0o600)
 
 
 def startup_banner(*, first_run: bool, secret_configured: bool, port,

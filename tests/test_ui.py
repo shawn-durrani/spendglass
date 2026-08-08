@@ -366,3 +366,33 @@ def test_store_dir_becomes_owner_only(tmp_path):
     (d / "x").write_text("data")
     _secure_store_dir(d)
     assert stat.S_IMODE(d.stat().st_mode) == 0o700
+
+
+def test_store_dir_contents_become_owner_only(tmp_path):
+    """Contents too, recursively: a restored or copied store arrives with
+    default permissions, and the next start must repair it (issue #23).
+    Symlinks are skipped so chmod cannot reach outside the store dir."""
+    import os
+    import stat
+    from spendglass.ui import _secure_store_dir
+    d = tmp_path / "store"
+    (d / "backups").mkdir(parents=True)
+    (d / "store.db").write_text("db")
+    (d / "server.log").write_text("pre-enrolment banner")
+    (d / "backups" / "snap.db").write_text("snapshot")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not ours")
+    os.chmod(outside, 0o644)
+    (d / "link").symlink_to(outside)
+    for p in (d, d / "backups"):
+        os.chmod(p, 0o755)
+    for p in (d / "store.db", d / "server.log", d / "backups" / "snap.db"):
+        os.chmod(p, 0o644)
+
+    _secure_store_dir(d)
+
+    assert stat.S_IMODE(d.stat().st_mode) == 0o700
+    assert stat.S_IMODE((d / "backups").stat().st_mode) == 0o700
+    for p in (d / "store.db", d / "server.log", d / "backups" / "snap.db"):
+        assert stat.S_IMODE(p.stat().st_mode) == 0o600
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o644
