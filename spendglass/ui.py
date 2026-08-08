@@ -20,7 +20,10 @@ Security posture:
   * provider keys (/api/admin/key), written into `.env` at 0600 after the
     key is sent to that provider once to validate it;
   * the password record (/api/setup) in data/ui_auth.json and session
-    digests (/api/login, /api/logout) in data/ui_sessions.json.
+    digests (/api/login, /api/logout) in data/ui_sessions.json;
+  * passkey public keys (/api/webauthn/register, .../credentials/remove)
+    in data/ui_passkeys.json — public material only, the private half
+    never leaves the platform authenticator (#22).
   The one column the app writes on a bank row is the derived
   transactions.merchant_key, set by the enrichment miner. Balances,
   amounts, dates, descriptions and every other field the bank sent are
@@ -31,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import threading
 import time
@@ -39,7 +43,18 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import webauthn as webauthn_lib
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers.exceptions import (InvalidAuthenticationResponse,
+                                         InvalidRegistrationResponse)
+from webauthn.helpers.structs import (AuthenticatorAttachment,
+                                      AuthenticatorSelectionCriteria,
+                                      PublicKeyCredentialDescriptor,
+                                      ResidentKeyRequirement,
+                                      UserVerificationRequirement)
+
 from . import capabilities
+from . import passkeys as passkeys_mod
 from . import themes as themes_mod
 from .auth import Auth
 from .config import Config
@@ -171,11 +186,21 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         if not auth.check_session(request.cookies.get(COOKIE)):
             raise HTTPException(status_code=401, detail="not authenticated")
 
+    # Passkeys (#22): credential store beside ui_auth.json, ceremonies below.
+    pk_store = passkeys_mod.PasskeyStore(auth.auth_file.parent / "ui_passkeys.json")
+
     @app.get("/api/session")
     def session_state(request: Request) -> dict:
+        # `passkey` tells the gate to lead with the passkey button. True only
+        # when the CURRENT host can do WebAuthn at all (localhost, never
+        # 127.0.0.1 — an IP is not a valid RP, membro#27's verified rule) AND
+        # a credential is enrolled for it. It leaks nothing beyond "one
+        # exists", the same granularity as `first_run`.
+        rp = passkeys_mod.rp_for_host(request.url.hostname)
         return {
             "authenticated": auth.check_session(request.cookies.get(COOKIE)),
             "first_run": auth.first_run,
+            "passkey": bool(rp and pk_store.credentials_for_rp(rp)),
         }
 
     @app.post("/api/setup")
@@ -205,6 +230,187 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
     def logout(request: Request, response: Response) -> dict:
         auth.revoke_session(request.cookies.get(COOKIE))
         response.delete_cookie(COOKIE)
+        return {"ok": True}
+
+    # ── passkeys (#22): WebAuthn as the everyday unlock ─────────────────────
+    # Mirrors membro#27. Enrolment sits behind a live session (never the
+    # gate); the two login steps are open because they are how a session
+    # comes to exist, and what they accept is signature-checked against an
+    # enrolled credential. A successful assertion mints exactly the session
+    # a password login mints; password and recovery secret are untouched.
+
+    # In-flight ceremonies: cid -> challenge + the origin/RP it was minted
+    # for. In-memory and single-use on purpose (unlike sessions, which
+    # persist): an abandoned prompt should evaporate, and a restart
+    # mid-ceremony just means tapping the button again.
+    pending_ceremonies: dict[str, dict] = {}
+    CEREMONY_TTL = 300  # seconds; a Touch ID prompt answers in far less
+
+    def _ceremony_mint(purpose: str, challenge: bytes, rp_id: str,
+                       origin: str) -> str:
+        now = time.time()
+        for k, v in list(pending_ceremonies.items()):
+            if v["expires"] < now:
+                pending_ceremonies.pop(k, None)
+        cid = secrets.token_urlsafe(24)
+        pending_ceremonies[cid] = {"purpose": purpose, "challenge": challenge,
+                                   "rp_id": rp_id, "origin": origin,
+                                   "expires": now + CEREMONY_TTL}
+        return cid
+
+    def _ceremony_take(cid: str, purpose: str) -> dict | None:
+        pend = pending_ceremonies.pop(cid or "", None)
+        if not pend or pend["purpose"] != purpose or pend["expires"] < time.time():
+            return None
+        return pend
+
+    def _ceremony_context(request: Request) -> tuple[str, str] | None:
+        """(origin, rp_id) for a ceremony on this request, or None where
+        passkeys cannot work (any host but localhost — including 127.0.0.1,
+        where the gate quietly stays password-first)."""
+        host = request.url.hostname or ""
+        rp = passkeys_mod.rp_for_host(host)
+        origin = request.headers.get("origin", "")
+        if not rp or not passkeys_mod.origin_ok(origin, host):
+            return None
+        return origin, rp
+
+    @app.post("/api/webauthn/register/options",
+              dependencies=[Depends(require_session)])
+    def webauthn_register_options(request: Request) -> dict:
+        ctx = _ceremony_context(request)
+        if ctx is None:
+            raise HTTPException(status_code=400, detail=(
+                f"passkeys need http://localhost:{PORT} — an IP address such "
+                "as 127.0.0.1 cannot hold one (browser rule, not ours)"))
+        origin, rp = ctx
+        opts = webauthn_lib.generate_registration_options(
+            rp_id=rp, rp_name="spendglass",
+            user_id=pk_store.user_handle(), user_name="owner",
+            user_display_name="Spendglass owner",
+            # Platform authenticator, discoverable, true user verification:
+            # Touch ID / Face ID, resident on the device, so the gate can
+            # offer "use a passkey" without ever disclosing credential ids.
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+                resident_key=ResidentKeyRequirement.REQUIRED,
+                user_verification=UserVerificationRequirement.REQUIRED),
+            exclude_credentials=[
+                PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["id"]))
+                for r in pk_store.credentials_for_rp(rp)])
+        cid = _ceremony_mint("register", opts.challenge, rp, origin)
+        return {"cid": cid,
+                "publicKey": json.loads(webauthn_lib.options_to_json(opts))}
+
+    @app.post("/api/webauthn/register",
+              dependencies=[Depends(require_session)])
+    async def webauthn_register(request: Request) -> dict:
+        body = await request.json()
+        pend = _ceremony_take(str(body.get("cid", "")), "register")
+        if pend is None:
+            raise HTTPException(status_code=400, detail=(
+                "enrolment challenge missing or expired; start again from "
+                "the admin panel"))
+        try:
+            v = webauthn_lib.verify_registration_response(
+                credential=body.get("credential") or {},
+                expected_challenge=pend["challenge"],
+                expected_rp_id=pend["rp_id"],
+                expected_origin=pend["origin"],
+                require_user_verification=True)
+        except (InvalidRegistrationResponse, ValueError):
+            raise HTTPException(status_code=400, detail=(
+                "the browser's enrolment response did not verify"))
+        rec = {
+            "id": bytes_to_base64url(v.credential_id),
+            "public_key": bytes_to_base64url(v.credential_public_key),
+            "sign_count": v.sign_count,
+            "rp_id": pend["rp_id"],
+            "origin": pend["origin"],
+            "created_at": int(time.time()),
+            "backed_up": bool(v.credential_backed_up),
+        }
+        # exclude_credentials steers the browser off re-enrolling; this
+        # guards the API path itself.
+        if any(r.get("id") == rec["id"] for r in pk_store.list_credentials()):
+            raise HTTPException(status_code=409,
+                                detail="this passkey is already enrolled")
+        pk_store.add_credential(rec)
+        return {"ok": True, "credential": {k: rec[k] for k in
+                                           ("id", "rp_id", "origin",
+                                            "created_at")}}
+
+    @app.post("/api/webauthn/login/options")
+    def webauthn_login_options(request: Request) -> dict:
+        # Anonymous by design (the gate), so it discloses as little as the
+        # gate itself: a challenge and the RP, never a credential id —
+        # allowCredentials stays empty and the browser offers whatever
+        # DISCOVERABLE credential it holds for this RP.
+        ctx = _ceremony_context(request)
+        if ctx is None:
+            raise HTTPException(status_code=400, detail=(
+                "passkey unlock is not available on this origin"))
+        origin, rp = ctx
+        if not pk_store.credentials_for_rp(rp):
+            raise HTTPException(status_code=400, detail=(
+                "no passkey is enrolled for this origin"))
+        opts = webauthn_lib.generate_authentication_options(
+            rp_id=rp, user_verification=UserVerificationRequirement.REQUIRED)
+        cid = _ceremony_mint("login", opts.challenge, rp, origin)
+        return {"cid": cid,
+                "publicKey": json.loads(webauthn_lib.options_to_json(opts))}
+
+    @app.post("/api/webauthn/login")
+    async def webauthn_login(request: Request, response: Response) -> dict:
+        # The passkey PROOF step. Failures are uniform 403s like a wrong
+        # password: an anonymous caller learns nothing about which part
+        # failed.
+        body = await request.json()
+        pend = _ceremony_take(str(body.get("cid", "")), "login")
+        if pend is None:
+            raise HTTPException(status_code=403, detail=(
+                "unlock challenge missing or expired; try again"))
+        credential = body.get("credential") or {}
+        cred_id = str(credential.get("rawId") or credential.get("id") or "")
+        rec = next((r for r in pk_store.credentials_for_rp(pend["rp_id"])
+                    if r.get("id") == cred_id), None)
+        if rec is None:
+            raise HTTPException(status_code=403, detail="passkey not recognised")
+        try:
+            v = webauthn_lib.verify_authentication_response(
+                credential=credential,
+                expected_challenge=pend["challenge"],
+                expected_rp_id=pend["rp_id"],
+                expected_origin=pend["origin"],
+                credential_public_key=base64url_to_bytes(rec["public_key"]),
+                credential_current_sign_count=int(rec.get("sign_count") or 0),
+                require_user_verification=True)
+        except (InvalidAuthenticationResponse, ValueError):
+            raise HTTPException(status_code=403, detail="passkey not recognised")
+        pk_store.update_sign_count(cred_id, v.new_sign_count)
+        response.set_cookie(COOKIE, auth.create_session(), httponly=True,
+                            samesite="strict", max_age=24 * 3600)
+        return {"ok": True}
+
+    @app.get("/api/webauthn/credentials",
+             dependencies=[Depends(require_session)])
+    def webauthn_credentials() -> dict:
+        # Listing for the admin panel: metadata only, never the public key.
+        return {"credentials": [
+            {k: r.get(k) for k in ("id", "rp_id", "origin", "created_at",
+                                   "backed_up")}
+            for r in pk_store.list_credentials()]}
+
+    @app.post("/api/webauthn/credentials/remove",
+              dependencies=[Depends(require_session)])
+    async def webauthn_remove(request: Request) -> dict:
+        # POST, not DELETE, so the cross-site middleware guard covers it like
+        # every other write here. Removing a passkey can never lock the owner
+        # out: the password always remains, and the device-side key simply
+        # stops unlocking this app.
+        body = await request.json()
+        if not pk_store.remove_credential(str(body.get("id", ""))):
+            raise HTTPException(status_code=404, detail="no passkey with that id")
         return {"ok": True}
 
     # ── data queries (GET only, nothing here writes) ────────────────────────
@@ -1183,6 +1389,10 @@ tr:hover td{background:var(--accent-soft)}
       <input id="new-password" type="password" autocomplete="new-password">
       <button onclick="doSetup()">Set password</button>
     </div>
+    <div id="pk-form" class="hidden">
+      <button id="pk-btn" onclick="passkeyUnlock()">Unlock with passkey</button>
+      <button class="link" onclick="showPassword()">Use your password instead</button>
+    </div>
     <div id="login-form" class="hidden">
       <label>Password</label>
       <input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
@@ -1229,6 +1439,21 @@ tr:hover td{background:var(--accent-soft)}
           works, then writes it to <code>.env</code> on this machine (owner-only,
           0600) if the check passes. It is never shown back here. The miners send
           it to the provider each time they run.</p>
+          <h3 style="margin-top:18px">Passkeys</h3>
+          <div id="ad-passkeys" class="sub">Loading…</div>
+          <div class="capform">
+            <button id="pk-enrol" onclick="enrolPasskey()">Enrol a passkey in this browser</button>
+            <span class="err" id="pk-msg" role="status"></span>
+          </div>
+          <p class="sub">A passkey lets this browser unlock spendglass with
+          Touch ID instead of the password — quicker, and nothing to type or
+          leak. The password keeps working as the fallback and the recovery
+          secret still handles resets, so a passkey can never lock you out.
+          One catch, by browser design: passkeys only work at
+          <code>localhost</code>, so use <a id="pk-local-link" href="/">this
+          page's localhost address</a> rather than 127.0.0.1. Removing one here
+          stops it unlocking spendglass; the copy on your device can then be
+          tidied away in your device's password settings.</p>
         </div>
       </div>
       <h3 style="margin-top:18px">Spending themes</h3>
@@ -1341,20 +1566,127 @@ const api=(p,o)=>fetch(p,o).then(r=>{if(r.status===401){showGate();throw 0}retur
 
 async function boot(){
   const s=await fetch("/api/session").then(r=>r.json());
-  if(s.authenticated){showMain()}else{showGate(s.first_run)}
+  if(s.authenticated){showMain()}else{showGate(s.first_run,s.passkey)}
 }
-function showGate(firstRun){
+function showGate(firstRun,passkey){
   $("main").classList.add("hidden");$("gate").classList.remove("hidden");
   const setup=firstRun===true;
+  /* passkey first when one is enrolled for THIS address (#22); the password
+     form waits one click behind. 127.0.0.1 never reports a passkey. */
+  const pk=passkey===true&&!setup&&!!window.PublicKeyCredential;
   $("setup-form").classList.toggle("hidden",!setup);
-  $("login-form").classList.toggle("hidden",setup);
+  $("pk-form").classList.toggle("hidden",!pk);
+  $("login-form").classList.toggle("hidden",setup||pk);
   $("gate-sub").textContent=setup?
     "First run — create the password that protects this page.":
     "Locked. This page shows your real bank transactions.";
 }
+function showPassword(){
+  $("pk-form").classList.add("hidden");$("login-form").classList.remove("hidden");
+  $("password").focus();
+}
 function showReset(){
   $("setup-form").classList.remove("hidden");$("login-form").classList.add("hidden");
+  $("pk-form").classList.add("hidden");
   $("gate-sub").textContent="Reset — paste the recovery secret from the server terminal.";
+}
+
+/* ── passkeys (#22): base64url plumbing + the two ceremonies ─────────────── */
+const pkB64uEnc=buf=>btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const pkB64uDec=s=>Uint8Array.from(
+  atob(s.replace(/-/g,"+").replace(/_/g,"/").padEnd(s.length+(4-s.length%4)%4,"=")),
+  ch=>ch.charCodeAt(0));
+
+async function passkeyUnlock(){
+  const btn=$("pk-btn");btn.disabled=true;$("gate-err").textContent="";
+  try{
+    const or_=await fetch("/api/webauthn/login/options",{method:"POST"});
+    const o=await or_.json();
+    if(!or_.ok)throw new Error(o.detail||"passkey unlock is not available here");
+    const pk=o.publicKey;
+    pk.challenge=pkB64uDec(pk.challenge);
+    (pk.allowCredentials||[]).forEach(c=>c.id=pkB64uDec(c.id));
+    const cred=await navigator.credentials.get({publicKey:pk});
+    const rr=await fetch("/api/webauthn/login",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({cid:o.cid,credential:{
+        id:cred.id,rawId:pkB64uEnc(cred.rawId),type:cred.type,
+        clientExtensionResults:cred.getClientExtensionResults(),
+        response:{
+          clientDataJSON:pkB64uEnc(cred.response.clientDataJSON),
+          authenticatorData:pkB64uEnc(cred.response.authenticatorData),
+          signature:pkB64uEnc(cred.response.signature),
+          userHandle:cred.response.userHandle?pkB64uEnc(cred.response.userHandle):null}}})});
+    const r=await rr.json();
+    if(!rr.ok||!r.ok)throw new Error(r.detail||"unlock failed");
+    showMain();
+  }catch(e){
+    $("gate-err").textContent=e.name==="NotAllowedError"?
+      "The passkey prompt was cancelled or timed out. Try again, or use your password.":
+      "Passkey unlock failed: "+e.message;
+    showPassword();btn.disabled=false;
+  }
+}
+
+async function loadPasskeys(){
+  const link=$("pk-local-link");
+  if(link)link.href=location.origin.replace("127.0.0.1","localhost")+"/";
+  try{
+    const r=await fetch("/api/webauthn/credentials");
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const rows=(await r.json()).credentials||[];
+    $("ad-passkeys").innerHTML=rows.length?rows.map(c=>`
+      <div class="miner-row"><span>${esc(c.origin)}</span>
+      <span class="st">${auDate(new Date(c.created_at*1000).toISOString().slice(0,10))}
+      · ${c.backed_up?"synced (e.g. iCloud)":"this device only"}
+      <button class="link" onclick="removePasskey('${esc(c.id)}')">remove</button></span></div>`).join(""):
+      `<span>No passkeys yet — enrol one to unlock with Touch ID instead of the password.</span>`;
+  }catch(e){$("ad-passkeys").textContent="Couldn't load passkeys: "+e.message}
+}
+
+async function enrolPasskey(){
+  const btn=$("pk-enrol");btn.disabled=true;$("pk-msg").textContent="";
+  try{
+    if(!window.PublicKeyCredential)throw new Error("this browser has no passkey support");
+    const or_=await fetch("/api/webauthn/register/options",{method:"POST"});
+    const o=await or_.json();
+    if(!or_.ok)throw new Error(o.detail||"HTTP "+or_.status);
+    const pk=o.publicKey;
+    pk.challenge=pkB64uDec(pk.challenge);
+    pk.user.id=pkB64uDec(pk.user.id);
+    (pk.excludeCredentials||[]).forEach(c=>c.id=pkB64uDec(c.id));
+    const cred=await navigator.credentials.create({publicKey:pk});
+    const rr=await fetch("/api/webauthn/register",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({cid:o.cid,credential:{
+        id:cred.id,rawId:pkB64uEnc(cred.rawId),type:cred.type,
+        clientExtensionResults:cred.getClientExtensionResults(),
+        response:{
+          clientDataJSON:pkB64uEnc(cred.response.clientDataJSON),
+          attestationObject:pkB64uEnc(cred.response.attestationObject),
+          transports:cred.response.getTransports?cred.response.getTransports():[]}}})});
+    const r=await rr.json();
+    if(!rr.ok||!r.ok)throw new Error(r.detail||"enrolment did not verify");
+    toast("Passkey enrolled — the lock screen here now offers it first.",true);
+    loadPasskeys();
+  }catch(e){
+    $("pk-msg").textContent=e.name==="NotAllowedError"?
+      "Cancelled or timed out — nothing was enrolled.":
+      e.name==="InvalidStateError"?
+      "This device already has a passkey for this address.":
+      "Enrolment failed: "+e.message;
+  }finally{btn.disabled=false}
+}
+
+async function removePasskey(id){
+  if(!confirm("Remove this passkey? It will stop unlocking spendglass; your password still works."))return;
+  try{
+    const r=await fetch("/api/webauthn/credentials/remove",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    toast("Passkey removed.",true);loadPasskeys();
+  }catch(e){toast("Couldn't remove passkey: "+e.message,false)}
 }
 async function doSetup(){
   const r=await fetch("/api/setup",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1818,7 +2150,7 @@ const MINERS=[
  ["enrich","Deterministic enrich","Rebuild merchant aggregates + recurring detection (free)",false],
 ];
 function toggleAdmin(){$("admin").classList.toggle("hidden");
-  if(!$("admin").classList.contains("hidden")){loadAdmin();loadThemes()}}
+  if(!$("admin").classList.contains("hidden")){loadAdmin();loadThemes();loadPasskeys()}}
 async function loadAdmin(){
   const r=await api("/api/admin");
   $("ad-thr").value=r.settings.auto_threshold;
