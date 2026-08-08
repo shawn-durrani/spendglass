@@ -4,6 +4,11 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Dates display in Australian day-first format (06/08/2026) everywhere
+  the UI shows one: the transaction table, drill-downs, renewal dates
+  and anomaly call-outs, plus row copies. Sorting and filtering still
+  run on the ISO values underneath, so ordering is unchanged.
+
 - The recovery secret prints only on a true first run, before a password
   is enrolled. Later starts print a redacted status line naming which
   kind of secret is in force and how to reset a forgotten password, so
