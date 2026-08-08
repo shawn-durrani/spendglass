@@ -1154,7 +1154,7 @@ tr:hover td{background:var(--accent-soft)}
 <div class="wrap">
   <div id="gate" class="center card hidden">
     <div class="topright" style="float:right"><label class="visually-hidden" for="theme-gate">Colour theme</label><select id="theme-gate" class="theme-pick" aria-label="Colour theme"><option value="zinc">Zinc</option><option value="midnight">Midnight</option><option value="espresso">Espresso</option><option value="oled">OLED</option><option value="light">Light</option></select></div>
-    <h1>redbark-<span class="bark">local</span>-store</h1>
+    <h1>spend<span class="bark">glass</span></h1>
     <p class="sub" id="gate-sub"></p>
     <div id="setup-form" class="hidden">
       <p style="font-size:13px">This sets the password you'll use from now on. Prove it's
@@ -1177,7 +1177,7 @@ tr:hover td{background:var(--accent-soft)}
 
   <div id="main" class="hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline">
-      <div><h1>redbark-<span class="bark">local</span>-store</h1>
+      <div><h1>spend<span class="bark">glass</span></h1>
       <p class="sub">Your bank transactions, stored on this machine. This page cannot move
       money, and it never edits what your bank sent. What it does change: merchant labels
       and themes, your settings, and the provider keys you save.</p></div>
@@ -1960,7 +1960,7 @@ PAGE_VIZ = r"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>redbark — spending</title>
+<title>spendglass — spending</title>
 <style>
 :root{--bg:#14161a;--card:#1c1f26;--card2:#23272f;--line:#2c313c;
       --fg:#d8dde6;--muted:#8b93a2;--faint:#6b7280;
@@ -2085,7 +2085,7 @@ details.explain b{color:var(--fg)}
 </script>
 <div class="wrap">
   <div class="topbar">
-    <h1>redbark-<span class="bark">local</span>-store <span class="sub2">/ spending</span></h1>
+    <h1>spend<span class="bark">glass</span> <span class="sub2">/ spending</span></h1>
     <div class="topright">
       <a class="link" href="/">← transactions</a>
       <select id="theme" class="theme-pick"><option value="zinc">Zinc</option>
