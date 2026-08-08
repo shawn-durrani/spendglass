@@ -1160,13 +1160,14 @@ tr:hover td{background:var(--accent-soft)}
       <p style="font-size:13px">This sets the password you'll use from now on. Prove it's
       you by pasting the <b>recovery secret</b> printed in the server terminal.</p>
       <label>Recovery secret (from the terminal)</label>
-      <input id="secret" autocomplete="off">
+      <input id="secret" type="password" autocomplete="off">
       <label>Choose a password (min 8 characters)</label>
       <input id="new-password" type="password" autocomplete="new-password">
       <button onclick="doSetup()">Set password</button>
     </div>
     <div id="login-form" class="hidden">
       <label>Password</label>
+      <input type="text" name="username" value="owner" autocomplete="username" readonly aria-hidden="true" style="position:absolute;left:-9999px" tabindex="-1">
       <input id="password" type="password" autocomplete="current-password"
              onkeydown="if(event.key==='Enter')doLogin()">
       <button onclick="doLogin()">Unlock</button>
