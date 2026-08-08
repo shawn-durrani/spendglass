@@ -1298,7 +1298,7 @@ tr:hover td{background:var(--accent-soft)}
 /* [sort key, label, default px width, cell renderer] — every column can be
    hidden, resized (drag the right edge of a header), and sorted. */
 const COLS=[
-  ["date","Date",100,x=>`<td>${x.date??""}</td>`],
+  ["date","Date",100,x=>`<td>${auDate(x.date)}</td>`],
   ["description","Description",380,x=>`<td>${esc(x.description)}</td>`],
   ["merchant","Merchant",180,(x,i)=>`<td class="editable" title="${esc(x.merchant_name)} — click to correct (applies to all matching)" onclick="cellEdit(event,${i},'merchant')">${x.internal?`<span class="prov" style="color:var(--faint)" title="Matched internal transfer — both legs found in your own accounts; excluded from spend analytics">⇄ </span>`:""}${esc(x.merchant_display)}${prov(x)}</td>`],
   ["amount","Amount",110,x=>`<td class="amt ${x.direction==="credit"?"credit":""}">${money(x.amount_cents??0,x.currency)}</td>`],
@@ -1414,7 +1414,7 @@ function applyWidths(){
 /* copy a whole row (visible columns, tab-separated); field selection still
    works normally — the button never interferes with text selection */
 function plainVal(x,k){
-  return {date:x.date??"",description:x.description??"",merchant:x.merchant_display??"",
+  return {date:auDate(x.date),description:x.description??"",merchant:x.merchant_display??"",
     amount:money(x.amount_cents??0,x.currency),direction:x.direction??"",
     category:x.category_display??"",subcategory:x.subcategory??"",
     custom_category:x.custom_category??"",account:x.account_name??"",
@@ -1480,6 +1480,10 @@ function prov(x){
     onclick="event.stopPropagation();if($('review').classList.contains('hidden'))toggleReview()">?</span>`;
   return "";
 }
+/* AU day-first date for DISPLAY only (06/08/2026). The store, the API,
+   sorting and filtering all stay ISO (2026-08-06); anything not ISO-shaped
+   passes through untouched. */
+const auDate=iso=>{const m=String(iso??"").match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(iso??"")};
 const money=(cents,cur)=>((cents<0?"-":"")+"$"+(Math.abs(cents)/100)
   .toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})
   +(cur&&cur!=="AUD"?" "+cur:""));
@@ -2428,6 +2432,10 @@ function renderSpend(cur,prev,bucket){
     ],
   });
 }
+/* AU day-first date for DISPLAY only (06/08/2026). The store, the API,
+   sorting and filtering all stay ISO (2026-08-06); anything not ISO-shaped
+   passes through untouched. */
+const auDate=iso=>{const m=String(iso??"").match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:String(iso??"")};
 const esc=s=>(s??"").toString().replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",
   ">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function pctOf(cur,prev){
@@ -2511,7 +2519,7 @@ function paintTxList(){
      <th style="width:150px">Category</th><th style="width:150px">Subcategory</th>
      <th class="amt" style="width:90px">Amount</th><th style="width:34px"></th></tr></thead>
    <tbody>${txData.map((t,i)=>`<tr>
-     <td>${t.date??""}</td>
+     <td>${auDate(t.date)}</td>
      <td><input class="txin" id="tx-name-${i}" autocomplete="off" value="${esc(t.merchant)}"></td>
      <td style="color:var(--muted)">${esc(t.description)}</td>
      <td><input class="txin" id="tx-cat-${i}" data-suggest="cats" autocomplete="off" value="${esc(CATLABEL[t.category]||t.category||CATLABEL[state.cat]||state.cat||"")}"></td>
@@ -2542,7 +2550,7 @@ async function renderSubs(){
     +(s.duplicates.length?` · <b class="up">${s.duplicates.length} duplicate vendor${s.duplicates.length>1?"s":""}</b>`:"")
     +(s.renewing_soon.length?` · ${s.renewing_soon.length} renewing within 14 days`:"");
   const flag=a=>(a.duplicate?`<b class="up">×2</b> `:"")
-    +(a.renewing_soon?`<span style="color:var(--warn-fg)">renewing ${esc(a.next_expected)}</span> `:"")
+    +(a.renewing_soon?`<span style="color:var(--warn-fg)">renewing ${esc(auDate(a.next_expected))}</span> `:"")
     +(a.billed_infrequently?`<span style="color:var(--faint)">bills ${esc(a.cadence)}</span>`:"");
   $("subs").innerHTML=s.active.map(a=>`<div class="trrow">
     <span class="who">${esc(a.name)} <span style="color:var(--faint)">${esc(a.subcategory||"")}</span> ${flag(a)}</span>
@@ -2797,7 +2805,7 @@ async function renderTrends(){
   if(t.anomalies.available){
     $("anomalies").innerHTML=t.anomalies.flags.length?t.anomalies.flags.map(f=>
       `<div class="trrow"><span class="who">${esc(catName(f.category))}
-        <span style="color:var(--faint)">— ${f.ratio}× typical${f.culprits[0]?`, driven by ${esc(f.culprits[0].merchant)} ${aud(f.culprits[0].cents)} on ${f.culprits[0].date}`:""}</span></span>
+        <span style="color:var(--faint)">— ${f.ratio}× typical${f.culprits[0]?`, driven by ${esc(f.culprits[0].merchant)} ${aud(f.culprits[0].cents)} on ${auDate(f.culprits[0].date)}`:""}</span></span>
        <span class="amt up">${aud(f.cents)} <span style="color:var(--faint)">vs ${aud(f.typical_cents)}</span></span></div>`).join("")
       :`<div class="trempty">nothing unusual — last month looked like you</div>`;
   }
