@@ -4,3 +4,8 @@ fastapi>=0.110
 uvicorn>=0.30
 mcp>=2.0
 anthropic>=0.120
+# Passkey (WebAuthn) verification for the UI gate (#22): vetted parsing and
+# verification of authenticator responses; pulls in cryptography + cbor2.
+# Capped at <3: verification semantics are security-load-bearing, so a major
+# bump is its own reviewed change.
+webauthn>=2.2,<3

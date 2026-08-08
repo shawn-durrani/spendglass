@@ -15,7 +15,12 @@ of financial data:
 - The server binds `127.0.0.1` exclusively, with a Host-header allowlist
   as DNS-rebinding defence; cross-site POSTs are rejected.
 - The UI is password-protected (scrypt-hashed; sessions stored as SHA-256
-  digests, so the file on disk never contains a usable credential).
+  digests, so the file on disk never contains a usable credential). Once a
+  passkey is enrolled (from an unlocked session only, never the gate), the
+  gate offers it first and the password stays as the fallback; only the
+  credential's public key is stored (`data/ui_passkeys.json`), so a copied
+  store cannot impersonate the passkey. Passkeys work only on
+  `localhost` — an IP origin cannot hold one, by browser rule.
 - The bank API key lives in `.env` (gitignored; `start.sh` sets the file
   to 0600 on every run, and saving a provider key from the admin panel
   rewrites it at 0600 too, so both routes land in the same place). Only

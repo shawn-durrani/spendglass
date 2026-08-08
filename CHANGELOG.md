@@ -4,6 +4,13 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Passkey login (#22): enrol a Touch ID passkey from the admin panel and
+  the gate offers it first, password one click behind it. The password and
+  recovery secret are unchanged. Passkeys only work at
+  `http://localhost:8903` — an IP address cannot hold one (a browser rule:
+  it is not a valid WebAuthn relying party), so 127.0.0.1 keeps the
+  password gate.
+
 - The store directory's contents go owner-only on every start (0600
   files, 0700 subdirectories, backups included), not just the directory
   itself — a restored or copied store arrives with default permissions,
