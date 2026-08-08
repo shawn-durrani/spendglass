@@ -4,7 +4,7 @@
 local AI agents, and by nothing else.** Spendglass syncs your accounts
 through the [Redbark](https://docs.redbark.com) open-banking API into a
 local SQLite file, works out who your merchants actually are, and serves
-the result three ways: a password-protected web UI, a spending-analytics
+the result three ways: a passkey- or password-protected web UI, a spending-analytics
 page, and a read-only [MCP](https://modelcontextprotocol.io) server so
 agents running on this machine can answer questions about your money.
 
@@ -65,11 +65,13 @@ refuses a second instance on the port it is about to use, creates `.env`
 from the example on first run and tightens it to `0600` on every run, and
 serves the UI at **http://127.0.0.1:8903**.
 
-**Passwords and the recovery secret, in plain English.** There are two
-credentials and each has one job. Your **password** is what you log in
-with every day. The **recovery secret** exists only to prove it is you
-at the two moments a password cannot: the very first setup, and a reset
-after you forget the password.
+**Passkey, password and the recovery secret, in plain English.** Once you
+enrol a **passkey** (Touch ID, from the admin panel at
+http://localhost:8903), that is your everyday unlock, with your
+**password** one click behind it as the fallback. The **recovery secret**
+exists only to prove it is you at the two moments neither can help: the
+very first setup, and a reset after you forget the password. A passkey can
+never lock you out, because the password always remains.
 
 - **First start:** the terminal prints the recovery secret in full.
   Paste it on the first visit to set your password. Until a password
@@ -191,9 +193,10 @@ mangled; upgrade the code rather than downgrading the data.
 ## Security
 
 Loopback-only binds with a Host-header allowlist (DNS-rebinding defence),
-scrypt-hashed password, sessions stored as digests (the file on disk never
-holds a usable credential), cross-site POSTs rejected, provider keys
-validated before saving and never echoed back. See
+a passkey-first gate with a scrypt-hashed password fallback (only the
+passkey's public key is stored), sessions stored as digests (the file on
+disk never holds a usable credential), cross-site POSTs rejected, provider
+keys validated before saving and never echoed back. See
 [SECURITY.md](SECURITY.md) for the threat model and how to report issues.
 The design rules behind all of this live in
 [ARCHITECTURE.md](ARCHITECTURE.md).
