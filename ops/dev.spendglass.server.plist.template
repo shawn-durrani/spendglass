@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd user agent that keeps Spendglass running (#28). This is a TEMPLATE:
+  ops/install-supervisor.sh fills in {{REPO_DIR}}, {{HOME}} and {{PATH}} with
+  this machine's real values and writes the result to ~/Library/LaunchAgents/.
+  The template stays placeholder-only so no personal path is ever committed.
+
+  RunAtLoad + KeepAlive make launchd the sole owner of the service process:
+  it starts at login, restarts within seconds if the process exits for any
+  reason, and comes back after a reboot. ThrottleInterval caps restart
+  attempts at one per 10s so a hard boot failure cannot spin. start.sh's own
+  port guard means a stray second instance exits early instead of racing.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.spendglass.server</string>
+
+  <key>WorkingDirectory</key>
+  <string>{{REPO_DIR}}</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>{{REPO_DIR}}/start.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>{{REPO_DIR}}/data/service.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{REPO_DIR}}/data/service.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>{{HOME}}</string>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+  </dict>
+</dict>
+</plist>

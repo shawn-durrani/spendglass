@@ -65,6 +65,18 @@ refuses a second instance on the port it is about to use, creates `.env`
 from the example on first run and tightens it to `0600` on every run, and
 serves the UI at **http://127.0.0.1:8903**.
 
+To keep it running unattended on macOS (start at login, restart on
+crash, survive reboots), install the launchd supervisor once:
+
+```sh
+ops/install-supervisor.sh
+```
+
+The agent is `dev.spendglass.server`; it runs `start.sh` and logs to
+`data/service.log`. Restart with
+`launchctl kickstart -k gui/$(id -u)/dev.spendglass.server`; uninstall
+with `launchctl bootout gui/$(id -u)/dev.spendglass.server`.
+
 **Passkey, password and the recovery secret, in plain English.** Once you
 enrol a **passkey** (Touch ID, from the admin panel at
 http://localhost:8903), that is your everyday unlock, with your
