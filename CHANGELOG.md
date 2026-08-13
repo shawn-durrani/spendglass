@@ -4,6 +4,12 @@ House convention: user-visible change, one line each, newest first.
 
 ## Unreleased
 
+- Supervised service (#28): `ops/install-supervisor.sh` installs a
+  launchd agent (`dev.spendglass.server`) so Spendglass starts at login,
+  restarts within seconds if it exits, and survives reboots - ending the
+  hand-started posture where a crash or reboot left it silently down.
+  `start.sh` is unchanged and remains the way to run it ad hoc.
+
 - Passkey login (#22): enrol a Touch ID passkey from the admin panel and
   the gate offers it first, password one click behind it. The password and
   recovery secret are unchanged. Passkeys only work at
