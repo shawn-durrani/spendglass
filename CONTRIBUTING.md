@@ -49,6 +49,28 @@ not merely scanner-approved. `tests/conftest.py` shows the house style:
   code can't show, not narration of what the next line does.
 - CI (test + scan) must pass; `main` is protected.
 
+## Writing documentation
+
+Budgets, not taste. `tests/test_doc_style.py` enforces the hard limits;
+the rest is review. The house reference is a 15.5-word average sentence
+with 4% of sentences over 35 words.
+
+- One claim per sentence. Average under 18 words, and keep sentences over
+  35 words under 10% of a document.
+- No em-dashes. Australian English. Plain English over jargon.
+- Caveats earn their own sentence. Appending a limitation to every claim
+  is how the important ones stop reading as important.
+- Antithesis ("X, not Y", "rather than", "instead of") is a tool, not a
+  cadence. If deleting the "not Y" half loses no information, delete it.
+- Never announce your own honesty. "Stated plainly", "the honest reason":
+  delete the phrase, keep the fact.
+- Issue numbers and bug history go in the CHANGELOG and the issue.
+  Reference prose says what is true now.
+- Do not narrate a document's own structure or edit history. Nobody read
+  the previous version.
+- A table cell holds a value and a sentence, not a section.
+- Headings every 30 to 50 lines, so a section can be navigated.
+
 ## What gets a warm welcome
 
 Bug reports with reproductions, portability fixes, accessibility

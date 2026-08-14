@@ -65,6 +65,8 @@ refuses a second instance on the port it is about to use, creates `.env`
 from the example on first run and tightens it to `0600` on every run, and
 serves the UI at **http://127.0.0.1:8903**.
 
+### Keeping it running
+
 To keep it running unattended on macOS (start at login, restart on
 crash, survive reboots), install the launchd supervisor once:
 
@@ -77,7 +79,9 @@ The agent is `dev.spendglass.server`; it runs `start.sh` and logs to
 `launchctl kickstart -k gui/$(id -u)/dev.spendglass.server`; uninstall
 with `launchctl bootout gui/$(id -u)/dev.spendglass.server`.
 
-**Passkey, password and the recovery secret, in plain English.** Once you
+### Passkey, password and the recovery secret
+
+In plain English. Once you
 enrol a **passkey** (Touch ID, from the admin panel at
 http://localhost:8903), that is your everyday unlock, with your
 **password** one click behind it as the fallback. The **recovery secret**
@@ -100,7 +104,9 @@ Setting `SPENDGLASS_RECOVERY_SECRET` in `.env` up front also works and
 keeps the secret stable from day one; the startup banner will say one
 is configured without printing it.
 
-**Two settings are environment-only.** `start.sh` execs the server
+### Two settings are environment-only
+
+`start.sh` execs the server
 without sourcing `.env`, and `SPENDGLASS_UI_PORT` and `SPENDGLASS_DEV`
 are read from the process environment alone, so putting them in `.env`
 does nothing. Pass them on the command line instead:
@@ -152,15 +158,15 @@ the rest land in a review queue. One decision keys on the merchant, so a
 single click labels every matching transaction, and provenance decorators
 show how each label was established (✦ agent, ✓ human, ? pending).
 
-**What the miners cost** (they use *your* Anthropic key): the lookup agent
-is the expensive one (a capable model plus billed web searches per unclear
-merchant); the sweep and classifier use a small model via the Batch API
-(cheap); and every batch of approvals you submit in the review queue fires
-one more small non-batch request, the propagation pass that re-guesses
-related pending proposals (on by default; switch it off in the admin
-panel). Everything else is deterministic SQL and costs nothing. Discovery
-is front-loaded: once coverage is built, only new merchants trigger
-lookups.
+**What the miners cost.** They use *your* Anthropic key. The lookup agent
+is the expensive one: a capable model plus billed web searches per unclear
+merchant. The sweep and classifier use a small model via the Batch API,
+which is cheap. Every batch of approvals you submit in the review queue
+fires one more small non-batch request, the propagation pass that
+re-guesses related pending proposals (on by default; switch it off in the
+admin panel). Everything else is deterministic SQL and costs nothing.
+Discovery is front-loaded: once coverage is built, only new merchants
+trigger lookups.
 
 ## What counts as spend
 
