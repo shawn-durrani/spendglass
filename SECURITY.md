@@ -20,7 +20,7 @@ of financial data:
   gate offers it first and the password stays as the fallback; only the
   credential's public key is stored (`data/ui_passkeys.json`), so a copied
   store cannot impersonate the passkey. Passkeys work only on
-  `localhost` — an IP origin cannot hold one, by browser rule.
+  `localhost`: an IP origin cannot hold one, by browser rule.
 - The bank API key lives in `.env` (gitignored; `start.sh` sets the file
   to 0600 on every run, and saving a provider key from the admin panel
   rewrites it at 0600 too, so both routes land in the same place). Only
