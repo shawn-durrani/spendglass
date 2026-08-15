@@ -69,7 +69,10 @@ with 4% of sentences over 35 words.
 - Do not narrate a document's own structure or edit history. Nobody read
   the previous version.
 - A table cell holds a value and a sentence, not a section.
-- Headings every 30 to 50 lines, so a section can be navigated.
+- Headings every 30 to 50 lines of prose, so a section can be navigated.
+- Every document in `docs/` is linked from `docs/README.md`, and a test
+  enforces it.
+- Say a thing once. Two copies of a rule is one copy that will go stale.
 
 ## What gets a warm welcome
 

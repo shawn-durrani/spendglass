@@ -60,66 +60,10 @@ cd spendglass
 ./start.sh
 ```
 
-`start.sh` creates `.venv`, installs dependencies when they change,
-refuses a second instance on the port it is about to use, creates `.env`
-from the example on first run and tightens it to `0600` on every run, and
-serves the UI at **http://127.0.0.1:8903**.
-
-### Keeping it running
-
-To keep it running unattended on macOS (start at login, restart on
-crash, survive reboots), install the launchd supervisor once:
-
-```sh
-ops/install-supervisor.sh
-```
-
-The agent is `dev.spendglass.server`; it runs `start.sh` and logs to
-`data/service.log`. Restart with
-`launchctl kickstart -k gui/$(id -u)/dev.spendglass.server`; uninstall
-with `launchctl bootout gui/$(id -u)/dev.spendglass.server`.
-
-### Passkey, password and the recovery secret
-
-In plain English. Once you
-enrol a **passkey** (Touch ID, from the admin panel at
-http://localhost:8903), that is your everyday unlock, with your
-**password** one click behind it as the fallback. The **recovery secret**
-exists only to prove it is you at the two moments neither can help: the
-very first setup, and a reset after you forget the password. A passkey can
-never lock you out, because the password always remains.
-
-- **First start:** the terminal prints the recovery secret in full.
-  Paste it on the first visit to set your password. Until a password
-  exists, every start prints a usable secret, so missing it just means
-  look again after a restart.
-- **After that:** the secret is never printed again (a printed secret
-  would pile up in server logs), and you never need it for normal use.
-- **Forgot your password?** You do not retrieve the old secret - you
-  choose a new one. Put `SPENDGLASS_RECOVERY_SECRET=anything-you-pick`
-  in `.env`, restart, and use the reset form with that value. Being
-  able to edit `.env` on this machine is what proves it is you.
-
-Setting `SPENDGLASS_RECOVERY_SECRET` in `.env` up front also works and
-keeps the secret stable from day one; the startup banner will say one
-is configured without printing it.
-
-### Two settings are environment-only
-
-`start.sh` execs the server
-without sourcing `.env`, and `SPENDGLASS_UI_PORT` and `SPENDGLASS_DEV`
-are read from the process environment alone, so putting them in `.env`
-does nothing. Pass them on the command line instead:
-
-```sh
-SPENDGLASS_UI_PORT=8904 ./start.sh   # if 8903 is taken
-SPENDGLASS_DEV=1 ./start.sh          # auto-reload during development
-```
-
-Every other variable named in this README (`REDBARK_API_KEY`,
-`ANTHROPIC_API_KEY`, `SPENDGLASS_RECOVERY_SECRET`, and the backfill and
-backup settings) is read from `.env` as well as the environment, with the
-environment winning.
+`start.sh` creates `.venv`, installs dependencies when they change, refuses a
+second instance on the port it is about to use, creates `.env` from the
+example on first run and tightens it to `0600` on every run, and serves the UI
+at **http://127.0.0.1:8903**.
 
 Add your Redbark key to `.env`, then pull data:
 
@@ -127,86 +71,35 @@ Add your Redbark key to `.env`, then pull data:
 .venv/bin/python -m spendglass.sync
 ```
 
-First sync backfills 365 days (`SPENDGLASS_BACKFILL_DAYS`, up to the CDR
-two-year cap). While the server runs it keeps itself fresh: sync + enrich
-run every N hours (admin setting, default 6) as subprocesses.
+The first visit asks you to set a password, using the recovery secret the
+terminal printed. [docs/CONFIG.md](docs/CONFIG.md) explains the three
+credentials and every other setting.
 
-## Connect your agents (MCP)
+To keep it running unattended (start at login, restart on crash, survive
+reboots), install the launchd supervisor once with
+`ops/install-supervisor.sh`. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+## Connect your agents
 
 ```sh
 claude mcp add -s user spendglass -e PYTHONPATH=<repo> -- <repo>/.venv/bin/python -m spendglass.mcp_server
 ```
 
-Sixteen read-only tools (accounts, transaction search, spending
-summaries, recurring charges, health, eight trend devices, themes, and
-subscriptions), with all money arithmetic done in SQL integer cents; the
-model only reads answers. The tool list is pinned by a test: adding a
-tool is a reviewed decision, because the tool surface is the security
-surface. Every response but one carries `as_of` and `stale` flags, so a
-stale store answers loudly, never quietly. The exception is
-`store_health`, which returns the store's own health record: it has its
-own `stale` flag, the last sync run, and per-connection warnings, but no
-`as_of`.
+Sixteen read-only tools. No tool writes, and a test pins the exact list,
+because the tool surface is the security surface.
+[docs/MCP.md](docs/MCP.md).
 
-## Merchant identity
+## Documentation
 
-Bank descriptors are plumbing ("SQ *COFFEE CO", reference numbers, FX
-tails); the identity pipeline works out who the merchant is. A
-deterministic normaliser cleans and keys descriptors, an optional
-web-search agent proposes identities, confident proposals auto-apply, and
-the rest land in a review queue. One decision keys on the merchant, so a
-single click labels every matching transaction, and provenance decorators
-show how each label was established (✦ agent, ✓ human, ? pending).
+[docs/README.md](docs/README.md) indexes everything by what you are trying to
+do. The short version:
 
-**What the miners cost.** They use *your* Anthropic key. The lookup agent
-is the expensive one: a capable model plus billed web searches per unclear
-merchant. The sweep and classifier use a small model via the Batch API,
-which is cheap. Every batch of approvals you submit in the review queue
-fires one more small non-batch request, the propagation pass that
-re-guesses related pending proposals (on by default; switch it off in the
-admin panel). Everything else is deterministic SQL and costs nothing.
-Discovery is front-loaded: once coverage is built, only new merchants
-trigger lookups.
-
-## What counts as spend
-
-Spend views answer "what did I consume?": matched internal transfers,
-loan principal, and committed family-style transfers are excluded by
-default (never hidden; a toggle shows everything), while loan *interest*
-counts as spend, because that money is gone forever.
-
-## Themes
-
-A theme is one number for something that spans categories: a renovation
-is trades + hardware + architects; pets are supplies + vet + insurance.
-New stores start with **no** themes: create your own in the admin panel,
-blank or from a template (Renovation, Pets, Travel, Kids, AI, Health &
-Fitness). Themes never change a transaction; they are a read-time lens.
-
-## Back up & restore
-
-The server backs itself up: consistent snapshots into `data/backups/` at
-startup and every `SPENDGLASS_BACKUP_INTERVAL_HOURS` (default 24; `0`
-disables), keeping the newest `SPENDGLASS_BACKUP_KEEP` (default 10). Set
-`SPENDGLASS_BACKUP_MIRROR_DIR` to a synced folder for off-machine copies.
-The banner shows the last backup and warns if snapshots stall.
-
-**Restore:** stop the server, copy a snapshot from `data/backups/` over
-`data/store.db` (remove `store.db-wal`/`store.db-shm` if present), start
-the server.
-
-**Why it matters:** the store holds bank rows (re-fetchable only within
-the backfill window) and your decisions (irreplaceable).
-
-## Updating
-
-```sh
-git pull && ./start.sh
-```
-
-Dependencies reinstall when they change; schema migrations run forward
-automatically. A database written by *newer* code is refused, never
-mangled; upgrade the code rather than downgrading the data.
+- [docs/CONFIG.md](docs/CONFIG.md): every setting, the keys, the credentials.
+- [docs/OPERATIONS.md](docs/OPERATIONS.md): supervisor, sync, backup, restore.
+- [docs/MCP.md](docs/MCP.md): the agent tools and what they guarantee.
+- [docs/MERCHANTS.md](docs/MERCHANTS.md): merchant identity, what the miners
+  cost, what counts as spend, themes.
+- [ARCHITECTURE.md](ARCHITECTURE.md): the settled design decisions.
 
 ## Security
 
