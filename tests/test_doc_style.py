@@ -153,24 +153,73 @@ def test_no_essays_in_table_cells():
 
 def test_long_docs_stay_navigable():
     """An unbroken wall has no way in. The worst case before this test was a
-    335-line section under a single heading."""
+    335-line section under a single heading.
+
+    CHANGELOG.md is exempt, and the exemption is about genre rather than
+    convenience: a changelog's headings are its releases, so the gap between
+    two of them is however much shipped in between. Forcing one every 50 lines
+    would mean inventing headings that describe nothing. Its entries are still
+    held to the sentence budget, which is where changelog prose actually goes
+    wrong."""
     offenders = []
     for path in tracked_docs():
+        if path.name == "CHANGELOG.md":
+            continue
         lines = path.read_text(errors="ignore").splitlines()
         if len(lines) < HEADING_EXEMPT_UNDER:
             continue
-        marks, in_fence = [0], False
+
+        # Only PROSE lines count toward a gap. A fenced block, a table and a
+        # list are all navigable already: a numbered procedure is indexed by
+        # its own numbers, and a table by its rows. Counting them would push
+        # a heading into the middle of a 1..6 list, which renumbers it from 1
+        # and makes the document worse to satisfy the guard.
+        marks, in_fence, prose = [(0, 0)], False, 0
         for n, line in enumerate(lines, 1):
             if line.lstrip().startswith("```"):
                 in_fence = not in_fence
                 continue
             if not in_fence and re.match(r"#{2,6}\s", line):
-                marks.append(n)
-        marks.append(len(lines))
-        widest = max(b - a for a, b in zip(marks, marks[1:]))
+                marks.append((n, prose))
+                continue
+            stripped = line.strip()
+            skip = (in_fence or not stripped or stripped.startswith(("|", ">"))
+                    or LIST_ITEM.match(line) or line.startswith(("    ", "\t")))
+            if not skip:
+                prose += 1
+        marks.append((len(lines), prose))
+        widest, where = 0, 0
+        for (_, pa), (nb, pb) in zip(marks, marks[1:]):
+            if pb - pa > widest:
+                widest, where = pb - pa, nb
         if widest > HEADING_EVERY:
             offenders.append(
-                f"{path.relative_to(REPO)}: {widest} lines without a heading")
+                f"{path.relative_to(REPO)}: {widest} lines of unbroken prose "
+                f"ending near line {where}")
     assert not offenders, (
         f"add a heading at least every {HEADING_EVERY} lines:\n  "
         + "\n  ".join(offenders))
+
+
+def test_docs_index_stays_complete():
+    """docs/README.md must link every document in docs/.
+
+    An index with holes is worse than none, because it teaches readers that
+    the unlisted files do not exist. Copied from crossband, where the index
+    is the entry point both humans and AI sessions are pointed at.
+
+    The href is checked, not the link text: a first draft of this accepted the
+    filename anywhere on the page and passed on link TEXT while the href was
+    broken."""
+    index = (REPO / "docs" / "README.md").read_text()
+    for path in sorted((REPO / "docs").glob("*.md")):
+        if path.name == "README.md":
+            continue
+        assert f"({path.name}" in index, (
+            f"docs/{path.name} is not linked from docs/README.md; index it")
+
+    for entry in ("README.md", "CLAUDE.md"):
+        text = (REPO / entry).read_text()
+        assert "docs/README.md" in text, (
+            f"{entry} must link the docs index, or it is invisible to the "
+            "audience it was written for")
