@@ -143,7 +143,8 @@ def startup_banner(*, first_run: bool, secret_configured: bool, port,
 
 
 def create_app(db_path: Path, auth: Auth, propagator=None,
-               backup_interval_hours: float | None = None) -> FastAPI:
+               backup_interval_hours: float | None = None,
+               autosync_env: str = "") -> FastAPI:
     """`propagator(confirmed_decisions)` runs after approvals on a background
     thread — production wires the model-backed one; tests get none.
     `backup_interval_hours` is display-only: it lets the banner call a
@@ -424,6 +425,10 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         # Epoch ms so the client needs no date parsing; None = never.
         h["last_backup"] = int(snap.stat().st_mtime * 1000) if snap else None
         h["backup_interval_hours"] = backup_interval_hours
+        # #1: when scheduled sync is off (opt-out or the scratch guard), the
+        # banner states that instead of warning about staleness.
+        from . import autosync as autosync_mod
+        h["autosync_off"] = autosync_mod.suppressed(db_path, autosync_env)
         return h
 
     @app.get("/api/accounts", dependencies=[Depends(require_session)])
@@ -1181,7 +1186,7 @@ def build_app() -> FastAPI:
     # Scheduled freshness lives with the server, not the OS — portable for
     # anyone who clones this. Tests use create_app directly, so stay inert.
     from . import autosync
-    autosync.start(cfg.db_path)
+    autosync.start(cfg.db_path, cfg.autosync)
 
     # Same principle for restore points: snapshot at startup and on a timer.
     from . import backup as backup_mod
@@ -1189,6 +1194,7 @@ def build_app() -> FastAPI:
                      cfg.backup_keep, cfg.backup_mirror_dir)
 
     return create_app(cfg.db_path, auth, propagator=live_propagator,
+                      autosync_env=cfg.autosync,
                       backup_interval_hours=cfg.backup_interval_hours)
 
 
@@ -1743,7 +1749,9 @@ function renderBanner(h){
     for(const w of c.warnings){
       b.insertAdjacentHTML("beforeend",`<span class="warnrow">⚠ ${c.institution}: ${w}</span>`)}
   }
-  if(stale)b.insertAdjacentHTML("beforeend",
+  if(h.autosync_off)b.insertAdjacentHTML("beforeend",
+    `<span>autosync is off — ${h.autosync_off}</span>`);
+  else if(stale)b.insertAdjacentHTML("beforeend",
     `<span class="warnrow">⚠ Data may be out of date — run
      <code>.venv/bin/python -m spendglass.sync</code></span>`);
 }

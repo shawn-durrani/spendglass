@@ -31,7 +31,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import REPO_ROOT
+from .config import DEFAULT_DB_PATH, REPO_ROOT
 from .store import Store
 
 CHECK_SECONDS = 60
@@ -40,6 +40,44 @@ SUBPROCESS_TIMEOUT = 30 * 60
 
 # One sync at a time, whether the scheduler or an admin click asks for it.
 _run_lock = threading.Lock()
+
+
+def _store_has_transactions(db_path: Path) -> bool:
+    try:
+        with Store(db_path) as s:
+            return bool(s.con.execute(
+                "SELECT EXISTS(SELECT 1 FROM transactions)").fetchone()[0])
+    except Exception:
+        return False  # unreadable reads as empty: the guard stays cautious
+
+
+def suppressed(db_path: Path, autosync_env: str,
+               default_db_path: Path = DEFAULT_DB_PATH) -> str:
+    """Why scheduled sync must not run, or '' to run normally (#1).
+
+    Two shapes, both from the field:
+    - SPENDGLASS_AUTOSYNC=0: the explicit opt-out for demos and offline
+      development.
+    - The scratch guard: the store is EMPTY and SPENDGLASS_DB points away
+      from the default location. A scratch instance that inherited the repo
+      .env pulled the full real bank history into its throwaway store
+      within a minute of boot; an empty override store is almost always a
+      test instance, so filling it with real money data needs a human's
+      say-so first - SPENDGLASS_AUTOSYNC=1, or the admin Run now button
+      (which is one). A fresh REAL install (empty store at the default
+      path) still syncs on first boot, exactly as before.
+    """
+    v = (autosync_env or "").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return "switched off by SPENDGLASS_AUTOSYNC=0"
+    if v in ("1", "true", "yes", "on"):
+        return ""
+    if Path(db_path).resolve() != Path(default_db_path).resolve()             and not _store_has_transactions(db_path):
+        return ("scratch guard: this store is empty and SPENDGLASS_DB points "
+                "away from the default, so scheduled sync will not pull real "
+                "bank data into it; set SPENDGLASS_AUTOSYNC=1 to allow, or "
+                "use the admin Run now button")
+    return ""
 
 
 def due(last_ok_iso: str | None, interval_hours: float, now_ts: float) -> bool:
@@ -113,13 +151,26 @@ def run_once(db_path: Path) -> None:
         raise
 
 
-def start(db_path: Path) -> threading.Thread:
+def start(db_path: Path, autosync_env: str = "") -> threading.Thread:
     """Start the scheduler thread (daemon — dies with the server)."""
 
     def loop() -> None:
         last_attempt = 0.0
+        off_reason_written = None
         while True:
             try:
+                # Re-checked every tick (#1): the scratch guard lifts by
+                # itself the moment the store holds data (a human ran sync),
+                # with no restart needed.
+                reason = suppressed(db_path, autosync_env)
+                if reason:
+                    if reason != off_reason_written:
+                        _set_status(db_path, {"state": "off",
+                                              "reason": reason})
+                        off_reason_written = reason
+                    time.sleep(CHECK_SECONDS)
+                    continue
+                off_reason_written = None
                 with Store(db_path) as s:
                     from .lookup import get_settings
                     interval = float(get_settings(s)["sync_interval_hours"])

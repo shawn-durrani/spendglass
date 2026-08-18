@@ -22,6 +22,10 @@ needs a keyless fallback.
 For a scratch instance that can't touch a real store, point
 `SPENDGLASS_DB` somewhere disposable and use a throwaway
 `SPENDGLASS_RECOVERY_SECRET` on a different `SPENDGLASS_UI_PORT`.
+Scheduled sync stays inert on its own: an empty store at a non-default
+`SPENDGLASS_DB` trips the scratch guard, so a repo `.env` full of real
+credentials cannot pull real bank data into it. `SPENDGLASS_AUTOSYNC=0`
+switches scheduled sync off outright; `=1` overrides the guard.
 
 ## Before you commit
 
