@@ -5,6 +5,16 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Scratch instances stop syncing real bank data by accident (#1). An
+  empty store at a non-default `SPENDGLASS_DB` no longer autosyncs: a
+  scratch instance that inherits the repo `.env` used to pull the full
+  real bank history into its throwaway store within a minute of boot.
+  The banner says autosync is off and why, instead of nagging about
+  staleness. `SPENDGLASS_AUTOSYNC=0` is the explicit opt-out for demos
+  and offline work; `=1` (or the admin Run now button) is the human
+  confirmation that lifts the guard. A fresh real install - empty store
+  at the default path - still syncs on first boot exactly as before.
+
 - Supervised service (#28): `ops/install-supervisor.sh` installs a
   launchd agent (`dev.spendglass.server`) so Spendglass starts at login,
   restarts within seconds if it exits, and survives reboots - ending the

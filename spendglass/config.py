@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_DB_PATH = REPO_ROOT / "data" / "store.db"
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -41,6 +42,9 @@ class Config:
     # chunks anything larger, but keep the constant where both sides can see it.
     trades_max_window_days: int = 366
     backup_interval_hours: float = 24.0
+    # SPENDGLASS_AUTOSYNC: "0" opts out of scheduled sync entirely; "1"
+    # overrides the scratch guard (see autosync.suppressed); "" = default.
+    autosync: str = ""
     backup_keep: int = 10
     backup_mirror_dir: Path | None = None
 
@@ -55,7 +59,8 @@ class Config:
         return cls(
             api_key=get("REDBARK_API_KEY"),
             api_url=(get("REDBARK_API_URL", "https://api.redbark.com") or "").rstrip("/"),
-            db_path=Path(get("SPENDGLASS_DB") or (REPO_ROOT / "data" / "store.db")),
+            db_path=Path(get("SPENDGLASS_DB") or DEFAULT_DB_PATH),
+            autosync=(get("SPENDGLASS_AUTOSYNC") or "").strip(),
             backfill_days=int(get("SPENDGLASS_BACKFILL_DAYS", "365") or 365),
             backup_interval_hours=float(get("SPENDGLASS_BACKUP_INTERVAL_HOURS", "24") or 24),
             backup_keep=int(get("SPENDGLASS_BACKUP_KEEP", "10") or 10),
