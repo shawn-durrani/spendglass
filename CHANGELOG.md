@@ -5,6 +5,16 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- The whole page works at phone width (#26). The gate, the transaction
+  table, review, admin and the spending page all fit a 375px screen with
+  no sideways drift: tables pan inside their own frame instead of
+  dragging the page, filters stack, buttons grow to finger size, and the
+  hover-only copy button stays visible on touch. Header drag-resize is a
+  mouse affordance and steps aside on touch; panning replaces it.
+  Spendglass still answers on this machine only - reaching it FROM a
+  phone stays a separate decision - but narrow desktop windows get the
+  same fixes today.
+
 - Scratch instances stop syncing real bank data by accident (#1). An
   empty store at a non-default `SPENDGLASS_DB` no longer autosyncs: a
   scratch instance that inherits the repo `.env` used to pull the full

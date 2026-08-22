@@ -1374,7 +1374,42 @@ tr:hover td{background:var(--accent-soft)}
       white-space:nowrap}
 .topright{display:flex;align-items:center;gap:8px;flex:none;white-space:nowrap;padding-top:6px}
 .topright .link{white-space:nowrap}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .hidden{display:none}
+/* ── phone width (#26): one column of cards, tables pan inside their own
+   wrap (never the body), everything tappable grows to a finger. Desktop
+   above 640px is untouched. */
+@media(pointer:coarse){
+  .copy{opacity:.55}          /* no hover on touch — keep it visible */
+  th .rz{display:none}        /* header resize is a mouse affordance; on
+                                 touch, panning the tablewrap replaces it */
+  .sglist div{padding:10px 14px}
+  .colpop label{padding:6px 0}
+}
+@media(max-width:640px){
+  .wrap{padding:12px}
+  .topbar{flex-wrap:wrap}
+  .topright{padding-top:0;flex-wrap:wrap;white-space:normal}
+  .filters{grid-template-columns:1fr 1fr}
+  #f-q{grid-column:1/-1}
+  button.link{padding:8px 10px}
+  .rv-approve,.rv-reject{padding:8px 10px}
+  #rv-q{flex:1 1 100%;width:100%}
+  .rv-actions{margin-left:0;width:100%}
+  #rv-bulk-sub{flex:1 1 auto;width:auto;min-width:0}
+  #rvtbl{min-width:960px}     /* pan inside .tablewrap, never crush: the
+                                 fixed columns alone sum to ~784px, and the
+                                 descriptor needs real room on top */
+  .foot{flex-wrap:wrap;gap:8px}
+  .toast{max-width:calc(100vw - 24px)}
+  .adnew select,.adnew input{flex:1 1 100%}
+  .capform input{min-width:0;flex:1 1 100%}
+  .miner-row{flex-wrap:wrap}
+}
+@media(max-width:480px){
+  .center{margin:5vh auto}
+  #gate button:not(.link){width:100%}
+}
 </style></head><body>
 <script>
   /* theme before first paint (no flash); "zinc" = :root default, no attribute */
@@ -1411,7 +1446,7 @@ tr:hover td{background:var(--accent-soft)}
   </div>
 
   <div id="main" class="hidden">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+    <div class="topbar">
       <div><h1>spend<span class="bark">glass</span></h1>
       <p class="sub">Your bank transactions, stored on this machine. This page cannot move
       money, and it never edits what your bank sent. What it does change: merchant labels
@@ -2442,6 +2477,19 @@ details.explain p{margin:7px 0 0;line-height:1.5}
 details.explain b{color:var(--fg)}
 @media(max-width:900px){.trendgrid{grid-template-columns:1fr}}
 @media(max-width:700px){.insight{font-size:18px}#spendchart{height:260px!important}}
+/* ── phone width (#26): the top bar wraps, tap targets grow, and nothing
+   escapes the viewport. Charts already follow their container. */
+@media(pointer:coarse){
+  .seg button{padding:9px 14px}
+  .sglist div{padding:10px 14px}
+}
+@media(max-width:640px){
+  .wrap{padding:12px}
+  .topbar{flex-wrap:wrap;gap:6px}
+  .topright{white-space:normal;flex-wrap:wrap}
+  .toast{max-width:calc(100vw - 24px)}
+  #txlist{overflow-x:auto}
+}
 </style></head><body>
 <script>
   (function(){var t=localStorage.getItem("sg-theme");
