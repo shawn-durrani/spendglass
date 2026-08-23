@@ -286,9 +286,14 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
                 "as 127.0.0.1 cannot hold one (browser rule, not ours)"))
         origin, rp = ctx
         opts = webauthn_lib.generate_registration_options(
+            # "spendglass owner", not a bare "owner": the three fleet apps
+            # share the localhost RP (RP ids ignore ports), so the system
+            # account picker lists every app's passkey in one sheet and the
+            # user name is the only line it reliably shows (#38; crossband
+            # set the pattern).
             rp_id=rp, rp_name="spendglass",
-            user_id=pk_store.user_handle(), user_name="owner",
-            user_display_name="Spendglass owner",
+            user_id=pk_store.user_handle(), user_name="spendglass owner",
+            user_display_name="spendglass owner",
             # Platform authenticator, discoverable, true user verification:
             # Touch ID / Face ID, resident on the device, so the gate can
             # offer "use a passkey" without ever disclosing credential ids.

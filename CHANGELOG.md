@@ -5,6 +5,13 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+- Your passkey now says whose it is (#38). The system account
+  picker lists every localhost app's passkey in one sheet, and
+  spendglass's row used to read as a bare "owner". New enrolments
+  register as "spendglass owner". An existing passkey keeps its old
+  label until re-enrolled: remove it in admin's Passkeys block,
+  then enrol again.
+
 - The whole page works at phone width (#26). The gate, the transaction
   table, review, admin and the spending page all fit a 375px screen with
   no sideways drift: tables pan inside their own frame instead of
