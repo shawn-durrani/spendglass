@@ -221,15 +221,20 @@ def test_gate_markup_carries_the_passkey_path():
 
 
 def test_options_and_session_leak_no_credential_material(ui):
+    """Narrowed since the sheet-scoping change (#40, owner call): the login
+    OPTIONS now deliberately name this app's credential ids, so the line
+    held here is what still matters - /api/session discloses nothing, and
+    no surface ever carries key material."""
     app, _ = ui
     pk, _ = _enrol_passkey(_owner(app))
     anon = _client(app)
     options = anon.post("/api/webauthn/login/options",
                         headers={"Origin": LOCAL}).json()
-    surfaces = json.dumps([options, anon.get("/api/session").json()])
-    assert bytes_to_base64url(pk.cred_id) not in surfaces
-    assert "public_key" not in surfaces
-    assert not options["publicKey"].get("allowCredentials")
+    session = json.dumps(anon.get("/api/session").json())
+    assert bytes_to_base64url(pk.cred_id) not in session
+    surface = json.dumps(options)
+    assert "public_key" not in surface and "public_key" not in session
+    assert bytes_to_base64url(pk._cose_key()) not in surface
 
 
 def test_password_fallback_still_works(ui):
@@ -352,3 +357,18 @@ def test_registration_names_the_app_in_the_picker(ui):
     user = o.json()["publicKey"]["user"]
     assert user["name"] == "spendglass owner"
     assert user["displayName"] == "spendglass owner"
+
+
+def test_login_sheet_offers_only_this_apps_keys(ui):
+    """The fleet shares the localhost RP, so an empty allow-list meant every
+    app's sheet offered every app's passkey (#40). The gate now names
+    exactly its own enrolled ids - a deliberate owner-approved disclosure:
+    an id is a key handle, not a secret, and existence was already
+    disclosed by the no-passkey 400."""
+    app, _ = ui
+    c = _owner(app)
+    pk, r = _enrol_passkey(c)
+    assert r.status_code == 200, r.text
+    o = c.post("/api/webauthn/login/options", headers={"Origin": LOCAL})
+    allowed = o.json()["publicKey"]["allowCredentials"]
+    assert [a["id"] for a in allowed] == [bytes_to_base64url(pk.cred_id)]

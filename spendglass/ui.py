@@ -348,20 +348,29 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
 
     @app.post("/api/webauthn/login/options")
     def webauthn_login_options(request: Request) -> dict:
-        # Anonymous by design (the gate), so it discloses as little as the
-        # gate itself: a challenge and the RP, never a credential id —
-        # allowCredentials stays empty and the browser offers whatever
-        # DISCOVERABLE credential it holds for this RP.
+        # Anonymous by design (the gate). The sheet is narrowed to THIS
+        # app's own keys: the fleet's apps share the localhost RP (ports
+        # don't count), and with an empty allowCredentials every app's
+        # sheet listed every app's passkey (#40). Naming our enrolled ids
+        # to an anonymous caller is a deliberate disclosure (owner call,
+        # 2026-08-23, reversing the earlier ids-stay-private posture): a
+        # credential id is a public key handle, not a secret, and this
+        # endpoint's 400 already said whether a passkey exists here.
         ctx = _ceremony_context(request)
         if ctx is None:
             raise HTTPException(status_code=400, detail=(
                 "passkey unlock is not available on this origin"))
         origin, rp = ctx
-        if not pk_store.credentials_for_rp(rp):
+        rows = pk_store.credentials_for_rp(rp)
+        if not rows:
             raise HTTPException(status_code=400, detail=(
                 "no passkey is enrolled for this origin"))
         opts = webauthn_lib.generate_authentication_options(
-            rp_id=rp, user_verification=UserVerificationRequirement.REQUIRED)
+            rp_id=rp,
+            allow_credentials=[
+                PublicKeyCredentialDescriptor(id=base64url_to_bytes(r["id"]))
+                for r in rows],
+            user_verification=UserVerificationRequirement.REQUIRED)
         cid = _ceremony_mint("login", opts.challenge, rp, origin)
         return {"cid": cid,
                 "publicKey": json.loads(webauthn_lib.options_to_json(opts))}
