@@ -339,3 +339,16 @@ def test_stored_record_is_public_material_only_and_owner_only(ui):
     assert base64url_to_bytes(rec["id"]) == pk.cred_id
     priv = pk.key.private_numbers().private_value.to_bytes(32, "big")
     assert bytes_to_base64url(priv) not in raw
+
+
+def test_registration_names_the_app_in_the_picker(ui):
+    """The three fleet apps share the localhost RP (RP ids ignore ports), so
+    the system account picker lists every app's passkey in one sheet - and
+    the user name is the only line it reliably shows. A bare "owner" is
+    indistinguishable from the siblings' rows (#38)."""
+    app, _ = ui
+    c = _owner(app)
+    o = c.post("/api/webauthn/register/options", headers={"Origin": LOCAL})
+    user = o.json()["publicKey"]["user"]
+    assert user["name"] == "spendglass owner"
+    assert user["displayName"] == "spendglass owner"
