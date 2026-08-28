@@ -65,3 +65,13 @@ def test_missing_denylist_is_skipped_loudly(tmp_path):
     result = _scan("--files", str(ok))
     assert result.returncode == 0
     assert "SKIPPED" in result.stdout, "a skipped class must say so, not imply coverage"
+
+
+# ── published files are never pre-exempt ─────────────────────────────────────
+def test_requirements_txt_is_not_exempt():
+    """requirements.txt is tracked and ships, so it must face every matcher.
+    The exclusion existed for lockfile noise the file never contained. A
+    published file on the exclude list is a silent pre-exemption for
+    whatever lands in it later."""
+    text = (REPO / "scripts" / "secret-scan.sh").read_text()
+    assert ":(exclude)requirements.txt" not in text
