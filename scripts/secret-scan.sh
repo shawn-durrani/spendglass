@@ -53,14 +53,15 @@ allow_ts='tail[Xx]{3,}|my-tailnet|<[a-z]+>|example'
 allow_home='^/(Users|home)/(you|USER|username|user|name|me|<[a-z]+>)$'
 allow_email='@example\.(com|org|net)$|@users\.noreply\.github\.com$|^git@github\.com$|^noreply@|<[a-z]+>'
 
-# Paths whose CONTENT is exempt (this scanner, the hook, the scanner's own
-# tests, and version-pinned requirements). Every entry must exist — a dead
-# exclusion is a silent pre-exemption for whoever creates the path later.
+# Paths whose CONTENT is exempt (this scanner, the hook, and the scanner's
+# own tests). Every entry must exist — a dead exclusion is a silent
+# pre-exemption for whoever creates the path later. requirements.txt was
+# listed for lockfile noise it never contained; it is tracked, it ships,
+# and a published file must not be pre-exempt from every matcher.
 excludes=(
   ':(exclude)scripts/secret-scan.sh'
   ':(exclude).githooks/pre-commit'
   ':(exclude)tests/test_secret_scan.py'
-  ':(exclude)requirements.txt'
 )
 
 mode="staged"
