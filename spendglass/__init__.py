@@ -16,4 +16,4 @@ provider keys, and it reaches the network for merchant identification and
 to validate a provider key before saving it.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"

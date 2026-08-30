@@ -5,6 +5,14 @@ entry to a short paragraph; the issue holds the detail.
 
 ## Unreleased
 
+## v0.2.0 (2026-08-30)
+
+- Two open PRs no longer conflict on the changelog (#44). Each change
+  now ships its entry as one file under `changelog.d/`, and a release
+  folds them into `CHANGELOG.md` newest first, above the entries already
+  sitting under Unreleased. A test fails any PR that edits Unreleased
+  directly and names the new home.
+
 - Other apps' passkeys no longer crowd spendglass's unlock sheet
   (#40). The fleet's apps share the browser's localhost passkey scope,
   so the sheet used to offer every app's key here. The gate now tells
