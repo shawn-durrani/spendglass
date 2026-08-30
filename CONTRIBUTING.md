@@ -48,7 +48,11 @@ not merely scanner-approved. `tests/conftest.py` shows the house style:
 - Open or claim an issue first; everything ships issue → PR → merge,
   and small PRs review faster.
 - Tests accompany behaviour changes; the suite stays keyless-green.
-- User-visible changes get one line in `CHANGELOG.md` under Unreleased.
+- User-visible changes get one new file under `changelog.d/`, not an
+  edit to `CHANGELOG.md`. Name it `<issue>-<slug>.md` and write the
+  finished entry: one `- ` paragraph in the changelog's voice, with
+  continuation lines indented two spaces. Entries fold into the
+  changelog at release, so two open PRs never touch the same line.
 - Code style: match the file you're in. Comments state constraints the
   code can't show, not narration of what the next line does.
 - CI (test + scan) must pass; `main` is protected.
@@ -101,5 +105,6 @@ Before a tag, every box:
 - [ ] No real personal data in code, tests, docs or fixtures
 - [ ] Screenshots and any demo database come from a synthetic store only:
       real merchant names and amounts are personal data
-- [ ] `__version__` bumped, CHANGELOG entry dated, fresh `## Unreleased`
-      left above it
+- [ ] `python scripts/fold_changelog.py vX.Y.Z` run: `changelog.d/`
+      empty, the new section dated, Unreleased left empty above it
+- [ ] `__version__` bumped
