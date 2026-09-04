@@ -104,6 +104,7 @@ class FakeAPI:
     def __init__(self):
         self.calls: list[httpx.Request] = []
         self.plan_gated = False  # flip to make holdings/trades 403
+        self.txns = [dict(t) for t in TXNS]  # per test: settle or drop rows
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -123,7 +124,7 @@ class FakeAPI:
             assert "connectionId" in params and "accountId" in params, (
                 "accountId is REQUIRED (all-accounts form 410s after 2026-06-30)"
             )
-            items = [t for t in TXNS if t["accountId"] == params["accountId"]]
+            items = [t for t in self.txns if t["accountId"] == params["accountId"]]
             return httpx.Response(200, json=_paged(items))
         if path == "/v1/holdings":
             if self.plan_gated:

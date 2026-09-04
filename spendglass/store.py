@@ -7,7 +7,10 @@ Design rules:
 - Every row keeps the full raw JSON — the schema extracts what we query,
   the raw column means an API field we didn't anticipate is never lost.
 - Upserts are keyed on the provider's own ids, so re-syncing an overlapping
-  window is harmless (this is what makes the sync layer simple).
+  window is harmless (this is what makes the sync layer simple). The one
+  removal: a pending row the provider stops returning inside a fetched
+  window is dropped, because a pending authorisation posts under a NEW id
+  and the old one would otherwise outlive its posted twin (#47).
 - Consent reality (from the API docs): there is NO consentExpiresAt field.
   Expiry surfaces as connection status 'invalidated'. We therefore track
   status transitions loudly, and separately estimate a worst-case deadline
@@ -250,6 +253,50 @@ class Store:
             )
         self.con.commit()
         return len(items)
+
+    def oldest_pending_date(self, account_id: str) -> str | None:
+        """The date of this account's oldest pending row, or None. The sync
+        reaches its fetch window back to it, so a pending row can never sit
+        older than the window that decides whether it still exists."""
+        row = self.con.execute(
+            """SELECT MIN(date) AS d FROM transactions
+               WHERE account_id=? AND status='pending' AND date IS NOT NULL""",
+            (account_id,),
+        ).fetchone()
+        return row["d"] if row and row["d"] else None
+
+    def prune_settled_pending(self, account_id: str, from_date: str,
+                              returned_ids: set[str]) -> int:
+        """Drop this account's pending rows dated on or after from_date whose
+        id the provider did not return in the fetch that covered that window.
+        A pending authorisation posts under a NEW id, so the old id simply
+        stops coming back; without this the pending row outlives its posted
+        twin and every purchase shows twice (#47). Posted rows are never
+        touched: the provider's silence about a posted row means nothing.
+        Transfer links on either side of a pruned row go with it; they are
+        derived and the next match rebuilds them. Returns the count dropped."""
+        rows = self.con.execute(
+            """SELECT id FROM transactions
+               WHERE account_id=? AND status='pending'
+                 AND date IS NOT NULL AND date>=?""",
+            (account_id, from_date),
+        ).fetchall()
+        gone = [r["id"] for r in rows if r["id"] not in returned_ids]
+        if not gone:
+            return 0
+        has_links = self.con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='transfer_links'"
+        ).fetchone() is not None
+        for i in range(0, len(gone), 400):
+            chunk = gone[i:i + 400]
+            marks = ",".join("?" * len(chunk))
+            self.con.execute(f"DELETE FROM transactions WHERE id IN ({marks})", chunk)
+            if has_links:
+                self.con.execute(
+                    f"DELETE FROM transfer_links WHERE txn_id IN ({marks}) "
+                    f"OR peer_txn_id IN ({marks})", chunk + chunk)
+        self.con.commit()
+        return len(gone)
 
     def upsert_holdings(self, items: list[dict]) -> int:
         now = _now()
