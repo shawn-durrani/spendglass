@@ -7,7 +7,8 @@ Flow per run:
   4. balances     → append snapshot for every account
   5. per banking account: transactions, windowed from last success (with
      overlap) or backfill_days on first run; per-account fan-out because
-     accountId is required upstream
+     accountId is required upstream. Pending rows the provider stopped
+     returning inside that window are dropped: they posted under a new id
   6. per brokerage account: holdings + trades (366-day windows); a 403
      means the plan doesn't include them — recorded, not fatal
   7. sync_run + per-account state recorded either way
@@ -38,7 +39,7 @@ def sync(store: Store, client: RedbarkClient, backfill_days: int = 365,
          trades_max_window_days: int = 366) -> dict:
     run_id = store.start_sync_run()
     details: dict = {"connections": 0, "accounts": 0, "categories": 0, "balances": 0,
-                     "transactions": 0, "holdings": 0, "trades": 0,
+                     "transactions": 0, "pruned": 0, "holdings": 0, "trades": 0,
                      "warnings": [], "plan_gated": []}
     try:
         connections = client.connections()
@@ -89,9 +90,18 @@ def sync(store: Store, client: RedbarkClient, backfill_days: int = 365,
                 ).isoformat()
             else:
                 from_date = (_today() - timedelta(days=backfill_days)).isoformat()
-            details["transactions"] += store.upsert_transactions(
-                list(client.transactions(conn["id"], account["id"], from_date)),
-                conn["id"],
+            # A pending row older than the overlap is either a ghost whose
+            # posted twin arrived under a new id, or an authorisation the
+            # bank is still holding. Reach the window back to it so the
+            # provider's answer settles it either way (#47); once it is gone
+            # the window shrinks back to the overlap on its own.
+            oldest_pending = store.oldest_pending_date(account["id"])
+            if oldest_pending and oldest_pending < from_date:
+                from_date = oldest_pending
+            items = list(client.transactions(conn["id"], account["id"], from_date))
+            details["transactions"] += store.upsert_transactions(items, conn["id"])
+            details["pruned"] += store.prune_settled_pending(
+                account["id"], from_date, {t["id"] for t in items}
             )
             store.mark_account_synced(account["id"], today)
 
@@ -129,8 +139,8 @@ def main() -> int:
         ok = result["status"] == "ok"
         print(f"sync {'✓' if ok else '✖'} run={result['run_id']} "
               + " ".join(f"{k}={result[k]}" for k in
-                         ("connections", "accounts", "transactions", "balances",
-                          "holdings", "trades")))
+                         ("connections", "accounts", "transactions", "pruned",
+                          "balances", "holdings", "trades")))
         for w in result.get("warnings", []):
             print(f"  ⚠ {w}")
         for p in result.get("plan_gated", []):
