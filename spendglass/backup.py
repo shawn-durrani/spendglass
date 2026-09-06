@@ -26,6 +26,8 @@ import threading
 import time
 from pathlib import Path
 
+from . import busy
+
 log = logging.getLogger(__name__)
 
 _PREFIX = "store-"
@@ -37,28 +39,31 @@ def backup(db_path: Path, keep: int = 10,
     db_path = Path(db_path)
     if not db_path.exists():
         return None
-    bdir = db_path.parent / "backups"
-    bdir.mkdir(parents=True, exist_ok=True)
-    dest = bdir / time.strftime(f"{_PREFIX}%Y%m%d-%H%M%S.db")
-    src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        dst = sqlite3.connect(dest)
-        with dst:
-            src.backup(dst)
-        dst.close()
-    finally:
-        src.close()
-    _rotate(bdir, keep)
-    if mirror_dir:
+    # Busy for the whole snapshot, mirror copy included: a restart mid-copy
+    # leaves a partial file in either folder.
+    with busy.working("backup"):
+        bdir = db_path.parent / "backups"
+        bdir.mkdir(parents=True, exist_ok=True)
+        dest = bdir / time.strftime(f"{_PREFIX}%Y%m%d-%H%M%S.db")
+        src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
-            mdir = Path(mirror_dir)
-            mdir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, mdir / dest.name)
-            _rotate(mdir, keep)
-        except OSError:
-            log.warning("backup mirror to %s failed; local snapshot is %s",
-                        mirror_dir, dest)
-    return dest
+            dst = sqlite3.connect(dest)
+            with dst:
+                src.backup(dst)
+            dst.close()
+        finally:
+            src.close()
+        _rotate(bdir, keep)
+        if mirror_dir:
+            try:
+                mdir = Path(mirror_dir)
+                mdir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(dest, mdir / dest.name)
+                _rotate(mdir, keep)
+            except OSError:
+                log.warning("backup mirror to %s failed; local snapshot is %s",
+                            mirror_dir, dest)
+        return dest
 
 
 def _rotate(folder: Path, keep: int) -> None:

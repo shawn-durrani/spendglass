@@ -10,6 +10,9 @@ Security posture:
   allowlist as DNS-rebinding defense.
 - POSTs reject cross-site callers via Sec-Fetch-Site when the browser
   sends it; the session cookie is HttpOnly + SameSite=Strict.
+- Two routes answer without a session: /api/session (the gate's own
+  state) and /api/busy (whether a restart would cut work short, as fixed
+  labels). Each discloses that something is so, never content.
 - This surface writes. Do not describe it as read-only. The write paths,
   none of which edit what the bank sent:
   * labels: merchant-identity decisions (/api/lookups/decide) into the
@@ -53,6 +56,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
+from . import busy as busy_mod
 from . import capabilities
 from . import passkeys as passkeys_mod
 from . import themes as themes_mod
@@ -203,6 +207,14 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             "first_run": auth.first_run,
             "passkey": bool(rp and pk_store.credentials_for_rp(rp)),
         }
+
+    @app.get("/api/busy")
+    def busy_state() -> dict:
+        # Open like /api/session, and for the same reason: the deploy
+        # watcher has no session. It asks before a restart and waits while
+        # this says yes. The answer names kinds of work from busy.LABELS,
+        # never content.
+        return busy_mod.status(db_path)
 
     @app.post("/api/setup")
     async def setup(request: Request, response: Response) -> dict:
@@ -651,6 +663,12 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         finally:
             con.close()
 
+    def _propagate(confirmed: list[dict]) -> None:
+        # Best-effort and short, but it writes proposals from a thread a
+        # restart would kill, so the busy route counts it.
+        with busy_mod.working("propagate"):
+            propagator(confirmed)
+
     @app.post("/api/lookups/decide", dependencies=[Depends(require_session)])
     async def lookups_decide(request: Request) -> dict:
         body = await request.json()
@@ -694,7 +712,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         with Store(db_path) as s:
             prop_on = bool(get_settings(s)["propagation"])
         if confirmed and propagator and prop_on:
-            threading.Thread(target=propagator, args=(confirmed,),
+            threading.Thread(target=_propagate, args=(confirmed,),
                              daemon=True).start()
         return {"ok": True, "decided": len(decisions)}
 
@@ -707,6 +725,12 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             s.con.commit()
 
     def _run_miner(name: str, limit: int) -> None:
+        # Counted under the miner's own name: every miner writes the store
+        # from this thread, and a restart would kill it mid-pass.
+        with busy_mod.working(name):
+            _mine(name, limit)
+
+    def _mine(name: str, limit: int) -> None:
         started = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
         _set_status(name, {"state": "running", "started_at": started})
         try:
