@@ -10,7 +10,8 @@ are trying to do.
    two that are environment-only, and how the passkey, password and recovery
    secret relate.
 3. [docs/OPERATIONS.md](OPERATIONS.md): keeping a live instance up. The
-   launchd supervisor, syncing, backups, restore, updating.
+   launchd supervisor, the busy check before a restart, syncing, backups,
+   restore, updating.
 
 ## I want my agents to answer questions about my money
 

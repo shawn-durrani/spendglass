@@ -37,6 +37,19 @@ instance. Killing the process by hand only makes launchd start it again, so
 use the restart command above. `./start.sh` becomes the right command again
 once you `bootout` the agent.
 
+A restart cuts short whatever the service is doing, so ask first:
+
+```sh
+curl -s http://127.0.0.1:8903/api/busy
+```
+
+It answers `{"busy": false, "reasons": []}` when nothing is running.
+Otherwise it names the work with fixed labels: `sync`, `enrich`, `lookup`,
+`classify`, `sweep`, `propagate` or `backup`. The route needs no login and
+never carries content. The fleet's deploy watcher waits on it before
+restarting spendglass. A sync run left open by a crash stops counting after
+an hour, so a stale row cannot hold every deploy.
+
 ## Syncing
 
 The first sync backfills 365 days (`SPENDGLASS_BACKFILL_DAYS`, up to the CDR

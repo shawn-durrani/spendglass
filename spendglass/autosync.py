@@ -31,6 +31,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import busy
 from .config import DEFAULT_DB_PATH, REPO_ROOT
 from .store import Store
 
@@ -110,17 +111,21 @@ def run_subprocesses(repo_root: Path = REPO_ROOT) -> dict:
     if not _run_lock.acquire(blocking=False):
         raise RuntimeError("a sync is already running")
     try:
-        result = {}
-        for step, mod in (("sync", "spendglass.sync"),
-                          ("enrich", "spendglass.enrich")):
-            p = subprocess.run(
-                [sys.executable, "-m", mod], cwd=repo_root,
-                capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
-            tail = "\n".join((p.stdout + p.stderr).strip().splitlines()[-4:])
-            if p.returncode != 0:
-                raise RuntimeError(f"{step} failed: {tail[:260]}")
-            result[step] = tail.splitlines()[0][:200] if tail else "ok"
-        return result
+        # Both steps are one busy window for the deploy watcher: the enrich
+        # step rewrites derived tables and records no sync_runs row of its
+        # own, so the store alone would show it as idle.
+        with busy.working("sync"):
+            result = {}
+            for step, mod in (("sync", "spendglass.sync"),
+                              ("enrich", "spendglass.enrich")):
+                p = subprocess.run(
+                    [sys.executable, "-m", mod], cwd=repo_root,
+                    capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
+                tail = "\n".join((p.stdout + p.stderr).strip().splitlines()[-4:])
+                if p.returncode != 0:
+                    raise RuntimeError(f"{step} failed: {tail[:260]}")
+                result[step] = tail.splitlines()[0][:200] if tail else "ok"
+            return result
     finally:
         _run_lock.release()
 
