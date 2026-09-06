@@ -43,6 +43,13 @@ clearance**: fixtures and examples must be synthetic by construction,
 not merely scanner-approved. `tests/conftest.py` shows the house style:
 `Example Bank`, `acc-1`, shape-invalid keys.
 
+The script is a byte-for-byte copy of crossband's, the fleet's canonical
+scanner, and `tests/test_secret_scan.py` fails when the copy differs. Do
+not patch it here: land the fix in crossband (the Redbark key shape lives
+there too), then copy the file across and commit it, from a local
+checkout or with
+`curl -fsSL https://raw.githubusercontent.com/shawn-durrani/crossband/main/scripts/secret-scan.sh -o scripts/secret-scan.sh`.
+
 ## Pull requests
 
 - Open or claim an issue first; everything ships issue → PR → merge,
