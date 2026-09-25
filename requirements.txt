@@ -12,7 +12,7 @@ anthropic>=1.8.0,<2
 # The Anthropic SDK's HTTP layer: Pydantic's maintained fork of httpx. It
 # arrives with anthropic, and is declared because
 # tests/test_anthropic_sdk.py imports it to fake the API.
-httpx2>=2.0
+httpx2>=2.13.0
 # Passkey (WebAuthn) verification for the UI gate (#22): vetted parsing and
 # verification of authenticator responses; pulls in cryptography + cbor2.
 # Capped at <3: verification semantics are security-load-bearing, so a major
