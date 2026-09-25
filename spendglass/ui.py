@@ -11,8 +11,9 @@ Security posture:
 - POSTs reject cross-site callers via Sec-Fetch-Site when the browser
   sends it; the session cookie is HttpOnly + SameSite=Strict.
 - Two routes answer without a session: /api/session (the gate's own
-  state) and /api/busy (whether a restart would cut work short, as fixed
-  labels). Each discloses that something is so, never content.
+  state, plus this app's name and loopback address for the owner's other
+  apps to link to) and /api/busy (whether a restart would cut work short,
+  as fixed labels). Each discloses that something is so, never content.
 - This surface writes. Do not describe it as read-only. The write paths,
   none of which edit what the bank sent:
   * labels: merchant-identity decisions (/api/lookups/decide) into the
@@ -56,6 +57,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
                                       ResidentKeyRequirement,
                                       UserVerificationRequirement)
 
+from . import app_links
 from . import busy as busy_mod
 from . import capabilities
 from . import passkeys as passkeys_mod
@@ -148,12 +150,17 @@ def startup_banner(*, first_run: bool, secret_configured: bool, port,
 
 def create_app(db_path: Path, auth: Auth, propagator=None,
                backup_interval_hours: float | None = None,
-               autosync_env: str = "") -> FastAPI:
+               autosync_env: str = "",
+               sibling_apps: dict | None = None) -> FastAPI:
     """`propagator(confirmed_decisions)` runs after approvals on a background
     thread — production wires the model-backed one; tests get none.
     `backup_interval_hours` is display-only: it lets the banner call a
-    stalled backup stalled; the scheduler itself starts in build_app."""
+    stalled backup stalled; the scheduler itself starts in build_app.
+    `sibling_apps` feeds the header's row of links to the owner's other
+    apps; build_app passes the configured ones, tests pass their own or
+    none, so a test never asks a live service."""
     app = FastAPI(title="spendglass", docs_url=None, redoc_url=None)
+    app.state.sibling_probe = app_links.SiblingProbe(sibling_apps or {})
 
     # Derived-table schemas the queries join against; safe and idempotent.
     try:
@@ -206,7 +213,20 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             "authenticated": auth.check_session(request.cookies.get(COOKIE)),
             "first_run": auth.first_run,
             "passkey": bool(rp and pk_store.credentials_for_rp(rp)),
+            # This route doubles as the health probe, and the owner's other
+            # apps read these two to link here from their headers. Loopback
+            # only: the Host allowlist admits nothing else.
+            "app": app_links.APP,
+            "browser_origin": f"http://127.0.0.1:{PORT}",
         }
+
+    @app.get("/api/app-links", dependencies=[Depends(require_session)])
+    def app_links_row(request: Request) -> dict:
+        # The header row: the owner's other apps that answered their health
+        # probe on loopback, each at an address that opens from this page.
+        found = request.app.state.sibling_probe.found()
+        return {"links": app_links.link_row(request.url.hostname,
+                                            app_links.APP, found)}
 
     @app.get("/api/busy")
     def busy_state() -> dict:
@@ -1233,7 +1253,8 @@ def build_app() -> FastAPI:
 
     return create_app(cfg.db_path, auth, propagator=live_propagator,
                       autosync_env=cfg.autosync,
-                      backup_interval_hours=cfg.backup_interval_hours)
+                      backup_interval_hours=cfg.backup_interval_hours,
+                      sibling_apps=cfg.sibling_apps)
 
 
 def main() -> None:
@@ -1414,6 +1435,7 @@ tr:hover td{background:var(--accent-soft)}
 .topright .link{white-space:nowrap}
 .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .hidden{display:none}
+/*app-links-style*/
 /* ── phone width (#26): one column of cards, tables pan inside their own
    wrap (never the body), everything tappable grows to a finger. Desktop
    above 640px is untouched. */
@@ -1484,6 +1506,7 @@ tr:hover td{background:var(--accent-soft)}
   </div>
 
   <div id="main" class="hidden">
+    <nav class="app-links" id="app-links" aria-label="Your apps" hidden></nav>
     <div class="topbar">
       <div><h1>spend<span class="bark">glass</span></h1>
       <p class="sub">Your bank transactions, stored on this machine. This page cannot move
@@ -1642,6 +1665,7 @@ let lastData=[];
 let state={sort:"date",dir:"desc",offset:0,limit:100};
 const $=id=>document.getElementById(id);
 const api=(p,o)=>fetch(p,o).then(r=>{if(r.status===401){showGate();throw 0}return r.json()});
+/*app-links-script*/
 
 async function boot(){
   const s=await fetch("/api/session").then(r=>r.json());
@@ -1781,6 +1805,7 @@ async function doLogout(){await fetch("/api/logout",{method:"POST"});location.re
 
 async function showMain(){
   $("gate").classList.add("hidden");$("main").classList.remove("hidden");
+  loadAppLinks();
   const [health,accounts,categories]=await Promise.all(
     [api("/api/health"),api("/api/accounts"),api("/api/categories")]);
   renderBanner(health);
@@ -2431,6 +2456,7 @@ h2{font-size:15px;margin:0;color:var(--muted);font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
       padding:18px;margin-bottom:14px}
 .topbar{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px}
+/*app-links-style*/
 .topright{display:flex;align-items:center;gap:12px;flex:none;white-space:nowrap}
 .topright .link{white-space:nowrap}
 a.link,button.link{background:none;border:0;color:var(--muted);cursor:pointer;
@@ -2534,6 +2560,7 @@ details.explain b{color:var(--fg)}
    if(t&&t!=="zinc")document.documentElement.dataset.theme=t;})();
 </script>
 <div class="wrap">
+  <nav class="app-links" id="app-links" aria-label="Your apps" hidden></nav>
   <div class="topbar">
     <h1>spend<span class="bark">glass</span> <span class="sub2">/ spending</span></h1>
     <div class="topright">
@@ -2699,6 +2726,7 @@ details.explain b{color:var(--fg)}
 <script src="/static/echarts.min.js"></script>
 <script>
 const $=id=>document.getElementById(id);
+/*app-links-script*/
 const state={days:+(localStorage.getItem("sg-days")||90),
   bucket:localStorage.getItem("sg-bucket")||"month",
   transfers:false,cat:null,sub:null,themeSel:null,
@@ -3338,6 +3366,7 @@ window.addEventListener("resize",()=>{for(const c of[spendChart,catChart,wfChart
 let CATLABEL={};
 fetchJSON("/api/session").then(async s=>{
   if(!s.authenticated){location.href="/";return}
+  loadAppLinks();
   await loadTaxonomy();
   load();
   renderTrends();   // range-independent: computed from full history
@@ -3347,6 +3376,37 @@ fetchJSON("/api/session").then(async s=>{
 $("theme").addEventListener("change",()=>setTimeout(renderTrends,50));
 </script></body></html>
 """
+
+
+# ── the row of links to the owner's other apps, on both pages ──────────────
+# One copy, spliced into each page at its markers. The server builds the row
+# for the address the page was opened at (app_links.link_row), so the page
+# only draws it, and draws nothing when no other app can open from here.
+_APP_LINKS_STYLE = r""".app-links{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;
+   margin:0 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line);font-size:13px}
+.app-links[hidden]{display:none}
+.app-links a{color:var(--muted);text-decoration:none;padding:4px 2px}
+.app-links a:hover{color:var(--accent)}
+.app-links [aria-current]{color:var(--fg);font-weight:600;padding:4px 2px}
+@media(max-width:640px){.app-links a,.app-links [aria-current]{padding:8px 4px}}"""
+
+_APP_LINKS_SCRIPT = r"""function loadAppLinks(){
+  const e=s=>String(s??"").replace(/[&<>"']/g,
+    c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  fetch("/api/app-links").then(r=>r.ok?r.json():{}).then(d=>{
+    const links=d.links||[],nav=document.getElementById("app-links");
+    nav.innerHTML=links.map(l=>l.current
+      ?`<span aria-current="page">${e(l.name)}</span>`
+      :`<a href="${e(l.href)}" target="_blank" rel="noopener noreferrer"
+          title="Open ${e(l.name)} in a new tab">${e(l.name)}</a>`).join("");
+    nav.hidden=!links.length;
+  }).catch(()=>{});
+}"""
+
+PAGE = (PAGE.replace("/*app-links-style*/", _APP_LINKS_STYLE)
+        .replace("/*app-links-script*/", _APP_LINKS_SCRIPT))
+PAGE_VIZ = (PAGE_VIZ.replace("/*app-links-style*/", _APP_LINKS_STYLE)
+            .replace("/*app-links-script*/", _APP_LINKS_SCRIPT))
 
 
 if __name__ == "__main__":
