@@ -3,7 +3,7 @@
 # current version as three parts.
 httpx>=0.27
 pytest>=9.1.1
-fastapi>=0.110
+fastapi>=0.141.1
 uvicorn>=0.53.0
 mcp>=2.2.0
 # Merchant identification. Capped at <2: a major version changes what the
