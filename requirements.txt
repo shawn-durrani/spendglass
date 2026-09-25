@@ -1,3 +1,6 @@
+# A capped requirement takes a three-part floor (>=2.2.0,<3, not >=2.2,<3).
+# Dependabot can only spot a major update, and skip it, when it reads the
+# current version as three parts.
 httpx>=0.27
 pytest>=8
 fastapi>=0.110
@@ -8,4 +11,4 @@ anthropic>=0.120
 # verification of authenticator responses; pulls in cryptography + cbor2.
 # Capped at <3: verification semantics are security-load-bearing, so a major
 # bump is its own reviewed change.
-webauthn>=2.2,<3
+webauthn>=2.2.0,<3
