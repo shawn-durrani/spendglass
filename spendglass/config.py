@@ -8,12 +8,33 @@ in a real config system we don't need yet.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = REPO_ROOT / "data" / "store.db"
+
+# The owner's other apps, each at the health route it answers on loopback
+# without a session. The ports are the fleet's allocation.
+DEFAULT_SIBLING_APPS = {
+    "crossband": "http://127.0.0.1:8902/api/auth/session",
+    "membro": "http://127.0.0.1:8901/v1/health",
+    "threadfold": "http://127.0.0.1:8904/health",
+}
+
+
+def _sibling_apps(raw: str | None) -> dict:
+    """SPENDGLASS_SIBLING_APPS is a JSON object of name -> health URL. Unset
+    or unparseable keeps the defaults; `{}` turns the header row off."""
+    if not raw:
+        return dict(DEFAULT_SIBLING_APPS)
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return dict(DEFAULT_SIBLING_APPS)
+    return value if isinstance(value, dict) else dict(DEFAULT_SIBLING_APPS)
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -47,6 +68,9 @@ class Config:
     autosync: str = ""
     backup_keep: int = 10
     backup_mirror_dir: Path | None = None
+    # The header links these apps, each only when it answers its health
+    # route on loopback (app_links.py).
+    sibling_apps: dict = field(default_factory=lambda: dict(DEFAULT_SIBLING_APPS))
 
     @classmethod
     def load(cls, env_file: Path | None = None) -> "Config":
@@ -65,4 +89,5 @@ class Config:
             backup_interval_hours=float(get("SPENDGLASS_BACKUP_INTERVAL_HOURS", "24") or 24),
             backup_keep=int(get("SPENDGLASS_BACKUP_KEEP", "10") or 10),
             backup_mirror_dir=Path(mirror) if mirror else None,
+            sibling_apps=_sibling_apps(get("SPENDGLASS_SIBLING_APPS")),
         )

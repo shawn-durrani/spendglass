@@ -65,3 +65,18 @@ machine is what proves it is you.
 Setting `SPENDGLASS_RECOVERY_SECRET` up front also works and keeps the secret
 stable from day one. The startup banner then says one is configured without
 printing it.
+
+## Links to your other apps
+
+A row at the top of both pages links your other apps, one click each.
+Spendglass asks each app on this machine where a browser can open it and
+keeps the answers for a minute. An app that doesn't answer within a
+second is left out, so the row never offers a link that won't open.
+
+| variable | default | what it does |
+|---|---|---|
+| `SPENDGLASS_SIBLING_APPS` | Crossband, Membro and Threadfold on their usual ports | A JSON object of app name to the health address that app answers on this machine. `{}` turns the row off. |
+
+Spendglass answers only on this machine. It reports its local address to
+the other apps as `browser_origin` on `/api/session`, so their rows show
+it on the Mac and leave it out on your phone.
