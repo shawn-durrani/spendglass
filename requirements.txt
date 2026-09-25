@@ -17,4 +17,4 @@ httpx2>=2.0
 # verification of authenticator responses; pulls in cryptography + cbor2.
 # Capped at <3: verification semantics are security-load-bearing, so a major
 # bump is its own reviewed change.
-webauthn>=2.2.0,<3
+webauthn>=2.8.0,<3
