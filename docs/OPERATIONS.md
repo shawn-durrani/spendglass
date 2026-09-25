@@ -70,9 +70,11 @@ last backup.
 
 The server backs itself up: consistent snapshots into `data/backups/` at
 startup and every `SPENDGLASS_BACKUP_INTERVAL_HOURS` (default 24, `0` disables),
-keeping the newest `SPENDGLASS_BACKUP_KEEP` (default 10). Set
-`SPENDGLASS_BACKUP_MIRROR_DIR` to a synced folder for off-machine copies. The
-banner warns if snapshots stall.
+keeping the newest `SPENDGLASS_BACKUP_KEEP` (default 10). The interval goes by
+the clock, so time the Mac spends asleep counts. A snapshot that fell due
+during sleep is taken within five minutes of waking, if the store has changed.
+Set `SPENDGLASS_BACKUP_MIRROR_DIR` to a synced folder for off-machine copies.
+The banner warns if snapshots stall.
 
 This matters because the store holds two things that are hard to replace: bank
 rows, re-fetchable only within the backfill window, and your own decisions,

@@ -4,7 +4,9 @@ The store holds two kinds of content: bank rows, re-fetchable only within
 the provider's backfill window, and human decisions — merchant identities,
 overrides, themes — which no API can re-send. So the server snapshots
 data/backups/ at startup and on a timer; scheduling belongs in the app,
-not the OS, same as autosync.
+not the OS, same as autosync. The timer goes by the wall clock, so a
+snapshot that fell due while the machine slept is taken soon after it
+wakes.
 
 sqlite3's backup API takes a consistent copy under WAL with the server
 live. Rotation keeps the newest N; a tick where nothing changed is skipped,
@@ -92,26 +94,60 @@ def changed_since_last_snapshot(db_path: Path) -> bool:
     return False
 
 
+# How often the backup timer wakes to ask whether a snapshot is due. The
+# wait itself runs on the monotonic clock, which stops while macOS sleeps,
+# so the interval is judged by the wall clock on each tick instead: a
+# snapshot that fell due during sleep is taken within one tick of waking.
+# A tick costs a directory listing and a few stat calls.
+TICK_S = 300.0
+
+
+def snapshot_due(db_path: Path, now: float, interval_s: float,
+                 last_try: float | None) -> bool:
+    """True when the newest snapshot, and the timer's last try, are both at
+    least `interval_s` old by the wall clock. The last try counts so a
+    failing backup waits an interval before it tries again. A time ahead of
+    `now` means the clock was set back, and is ignored so backups never
+    stall until the clock catches up."""
+    snap = last_snapshot(db_path)
+    newest = snap.stat().st_mtime if snap else None
+    marks = [t for t in (newest, last_try) if t is not None and t <= now]
+    return not marks or now - max(marks) >= interval_s
+
+
+def tick(db_path: Path, now: float, interval_s: float, last_try: float | None,
+         keep: int = 10, mirror_dir: Path | None = None) -> float | None:
+    """One wake of the backup timer; returns the new last-try time. A due
+    snapshot is still skipped when nothing changed since the newest one.
+    An `interval_s` of 0 makes any change due, which is the startup
+    snapshot."""
+    try:
+        if not (snapshot_due(db_path, now, interval_s, last_try)
+                and changed_since_last_snapshot(db_path)):
+            return last_try
+        backup(db_path, keep, mirror_dir)
+    except Exception:
+        log.exception("backup failed; will retry next interval")
+    return now
+
+
 def start(db_path: Path, interval_hours: float = 24.0, keep: int = 10,
-          mirror_dir: Path | None = None) -> threading.Event:
+          mirror_dir: Path | None = None, *, clock=time.time,
+          tick_s: float = TICK_S) -> threading.Event:
     """Snapshot now, then on a timer — a long-running instance must never
-    sit on a stale restore point. Returns a stop Event; interval <= 0
-    disables entirely (the Event is still returned)."""
+    sit on a stale restore point. `clock` is the wall clock, injectable for
+    tests. Returns a stop Event; interval <= 0 disables entirely (the Event
+    is still returned)."""
     stop = threading.Event()
-    if interval_hours <= 0:
+    interval_s = interval_hours * 3600
+    if interval_s <= 0:
         return stop
 
-    def _tick() -> None:
-        try:
-            if changed_since_last_snapshot(db_path):
-                backup(db_path, keep, mirror_dir)
-        except Exception:
-            log.exception("backup failed; will retry next interval")
-
     def _loop() -> None:
-        _tick()
-        while not stop.wait(interval_hours * 3600):
-            _tick()
+        last_try = tick(db_path, clock(), 0, None, keep, mirror_dir)
+        while not stop.wait(min(tick_s, interval_s)):
+            last_try = tick(db_path, clock(), interval_s, last_try,
+                            keep, mirror_dir)
 
     threading.Thread(target=_loop, daemon=True, name="backup-scheduler").start()
     return stop

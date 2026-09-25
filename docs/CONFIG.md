@@ -32,7 +32,7 @@ environment.
 | variable | default | what it does |
 |---|---|---|
 | `SPENDGLASS_BACKFILL_DAYS` | `365` | How far the first sync reaches back, up to the CDR two-year cap. |
-| `SPENDGLASS_BACKUP_INTERVAL_HOURS` | `24` | Snapshot cadence. `0` disables. |
+| `SPENDGLASS_BACKUP_INTERVAL_HOURS` | `24` | Hours between snapshots, by the clock, so time asleep counts. `0` disables. |
 | `SPENDGLASS_BACKUP_KEEP` | `10` | How many snapshots to retain. |
 | `SPENDGLASS_BACKUP_MIRROR_DIR` | unset | Second copy into a synced folder, for off-machine backups. |
 | `SPENDGLASS_DB` | `data/store.db` | Store location. Point it somewhere disposable for a scratch instance. |
