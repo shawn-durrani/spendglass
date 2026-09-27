@@ -22,6 +22,7 @@ data/store.db (removing store.db-wal / store.db-shm), start the server.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import sqlite3
 import threading
@@ -47,6 +48,10 @@ def backup(db_path: Path, keep: int = 10,
         bdir = db_path.parent / "backups"
         bdir.mkdir(parents=True, exist_ok=True)
         dest = bdir / time.strftime(f"{_PREFIX}%Y%m%d-%H%M%S.db")
+        # Owner-only from the first byte, whatever the process umask: a
+        # snapshot is a full copy of the store (issue #71).
+        os.close(os.open(dest, os.O_WRONLY | os.O_CREAT, 0o600))
+        os.chmod(dest, 0o600)
         src = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
             dst = sqlite3.connect(dest)
