@@ -10,6 +10,8 @@
   cookie (24h). Sessions survive restarts: only SHA-256 digests of tokens
   are written to data/ui_sessions.json (gitignored), so the file never
   holds a usable bearer token, and a restart no longer logs browsers out.
+  Sign-out ends one session. A password reset, and removing a passkey
+  (spendglass#69), end every one; the browser that did it gets a fresh one.
 """
 
 from __future__ import annotations
@@ -75,8 +77,7 @@ class Auth:
             "hash": _hash(password, salt),
             "created_at": int(time.time()),
         }))
-        self._sessions.clear()  # a reset invalidates every existing session
-        self._save_sessions()
+        self.revoke_all_sessions()  # a reset invalidates every existing session
         return True
 
     def check_password(self, password: str) -> bool:
@@ -92,11 +93,15 @@ class Auth:
             self._failed_logins = 0
         return ok
 
-    # ── sessions (in-memory, revocable, expiring) ───────────────────────────
+    # ── sessions (stored as digests, revocable, expiring) ───────────────────
 
     def create_session(self) -> str:
         token = secrets.token_urlsafe(32)
-        self._sessions[self._digest(token)] = time.time() + SESSION_TTL_SECONDS
+        now = time.time()
+        # Expired digests go here as well as at load and on sight, so one
+        # that's never presented again doesn't wait for a restart.
+        self._sessions = {k: v for k, v in self._sessions.items() if v > now}
+        self._sessions[self._digest(token)] = now + SESSION_TTL_SECONDS
         self._save_sessions()
         return token
 
@@ -116,3 +121,7 @@ class Auth:
     def revoke_session(self, token: str | None) -> None:
         if token and self._sessions.pop(self._digest(token), None) is not None:
             self._save_sessions()
+
+    def revoke_all_sessions(self) -> None:
+        self._sessions.clear()
+        self._save_sessions()

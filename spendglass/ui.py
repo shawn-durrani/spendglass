@@ -450,14 +450,19 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
 
     @app.post("/api/webauthn/credentials/remove",
               dependencies=[Depends(require_session)])
-    async def webauthn_remove(request: Request) -> dict:
+    async def webauthn_remove(request: Request, response: Response) -> dict:
         # POST, not DELETE, so the cross-site middleware guard covers it like
         # every other write here. Removing a passkey can never lock the owner
         # out: the password always remains, and the device-side key simply
-        # stops unlocking this app.
+        # stops unlocking this app. It also ends every other session, the
+        # fleet's rule (#69, crossband#471), and this browser gets a fresh
+        # one, the way a reset does.
         body = await request.json()
         if not pk_store.remove_credential(str(body.get("id", ""))):
             raise HTTPException(status_code=404, detail="no passkey with that id")
+        auth.revoke_all_sessions()
+        response.set_cookie(COOKIE, auth.create_session(), httponly=True,
+                            samesite="strict", max_age=24 * 3600)
         return {"ok": True}
 
     # ── data queries (GET only, nothing here writes) ────────────────────────
@@ -1783,7 +1788,7 @@ async function enrolPasskey(){
 }
 
 async function removePasskey(id){
-  if(!confirm("Remove this passkey? It will stop unlocking spendglass; your password still works."))return;
+  if(!confirm("Remove this passkey? It will stop unlocking spendglass, and every other browser signed in here is signed out. Your password still works."))return;
   try{
     const r=await fetch("/api/webauthn/credentials/remove",{method:"POST",
       headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});

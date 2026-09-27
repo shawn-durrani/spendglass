@@ -204,6 +204,19 @@ def test_env_writer_preserves_lines(tmp_path):
     assert env.stat().st_mode & 0o777 == 0o600
 
 
+def test_a_new_session_clears_expired_ones(ui):
+    """An expired digest nobody presents again goes on the next sign-in,
+    not only at the next start (#69)."""
+    client, auth = ui
+    _enroll(client)
+    old = client.cookies.get("spendglass_session")
+    auth._sessions[auth._digest(old)] = 1.0  # long past
+    auth._save_sessions()
+    auth.create_session()
+    stored = (auth.auth_file.parent / "ui_sessions.json").read_text()
+    assert auth._digest(old) not in stored
+
+
 def test_reset_invalidates_existing_sessions(ui):
     client, auth = ui
     _enroll(client)

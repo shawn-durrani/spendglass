@@ -332,6 +332,30 @@ def test_removal_stops_unlocking_but_password_remains(ui):
                              json={"password": PASSWORD}).status_code == 200
 
 
+def test_removal_signs_out_every_other_browser(ui):
+    """The fleet's rule (#69, crossband#471): removing a passkey ends every
+    other session, and the browser doing the removal gets a fresh one."""
+    app, _ = ui
+    owner = _owner(app)
+    pk, _ = _enrol_passkey(owner)
+    other = _client(app)
+    assert _passkey_login(other, pk).status_code == 200
+    before = owner.cookies.get("spendglass_session")
+    cid = owner.get("/api/webauthn/credentials").json()["credentials"][0]["id"]
+    assert owner.post("/api/webauthn/credentials/remove",
+                      json={"id": cid}).status_code == 200
+    assert owner.cookies.get("spendglass_session") != before
+    assert owner.get("/api/webauthn/credentials").status_code == 200
+    assert other.get("/api/webauthn/credentials").status_code == 401
+    stale = _client(app)
+    stale.cookies.set("spendglass_session", before)
+    assert stale.get("/api/webauthn/credentials").status_code == 401
+    # a miss signs nobody out
+    assert owner.post("/api/webauthn/credentials/remove",
+                      json={"id": "nope"}).status_code == 404
+    assert owner.get("/api/webauthn/credentials").status_code == 200
+
+
 def test_stored_record_is_public_material_only_and_owner_only(ui):
     app, auth = ui
     pk, _ = _enrol_passkey(_owner(app))

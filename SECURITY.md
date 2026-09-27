@@ -15,7 +15,9 @@ of financial data:
 - The server binds `127.0.0.1` exclusively, with a Host-header allowlist
   as DNS-rebinding defence; cross-site POSTs are rejected.
 - The UI is password-protected (scrypt-hashed; sessions stored as SHA-256
-  digests, so the file on disk never contains a usable credential). Once a
+  digests, so the file on disk never contains a usable credential). A
+  session lasts 24 hours and survives a restart. Signing out ends it, and
+  a password reset or a passkey removal ends every session. Once a
   passkey is enrolled (from an unlocked session only, never the gate), the
   gate offers it first and the password stays as the fallback; only the
   credential's public key is stored (`data/ui_passkeys.json`), so a copied
