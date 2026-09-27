@@ -381,6 +381,25 @@ def test_store_dir_becomes_owner_only(tmp_path):
     assert stat.S_IMODE(d.stat().st_mode) == 0o700
 
 
+def test_files_written_after_startup_are_owner_only(tmp_path):
+    """Startup's pass only repairs what's already there. The server writes
+    its sign-in records later, on its own schedule, and those have to be
+    private from the first byte too (issue #71)."""
+    import os
+    import stat
+    from spendglass.auth import Auth
+    from spendglass.ui import _secure_store_dir
+    d = tmp_path / "store"
+    d.mkdir()
+    os.umask(0o022)
+    _secure_store_dir(d)
+    auth = Auth(d / "ui_auth.json", recovery_secret="s" * 24)
+    assert auth.set_password("s" * 24, "correct horse")
+    auth.create_session()
+    for name in ("ui_auth.json", "ui_sessions.json"):
+        assert stat.S_IMODE((d / name).stat().st_mode) == 0o600, name
+
+
 def test_store_dir_contents_become_owner_only(tmp_path):
     """Contents too, recursively: a restored or copied store arrives with
     default permissions, and the next start must repair it (issue #23).

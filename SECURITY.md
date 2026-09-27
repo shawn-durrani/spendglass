@@ -73,5 +73,7 @@ or physical access; a local attacker with your user account can read
   forgotten password, set `SPENDGLASS_RECOVERY_SECRET` in `.env` and
   restart; the banner will name it without printing it.
 - `data/` in its entirety is sensitive: the store, its WAL/SHM sidecars,
-  backups, and logs all live there, all gitignored, and the app makes
-  the directory owner-only (0700) at startup.
+  backups, and logs all live there, all gitignored. At startup the app
+  makes the directory owner-only (0700) and every file in it 0600, and
+  every file it writes after that is 0600 from the first byte, backups
+  included.

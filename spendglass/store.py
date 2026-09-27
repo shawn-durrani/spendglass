@@ -21,6 +21,7 @@ Design rules:
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -116,7 +117,12 @@ def to_cents(value: str | None) -> int | None:
 class Store:
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # A new store is owner-only from its first byte, whichever process
+        # makes it: the server, a CLI run or the MCP server (issue #71).
+        # SQLite gives -wal and -shm the database's own mode.
+        if not self.db_path.exists():
+            os.close(os.open(self.db_path, os.O_WRONLY | os.O_CREAT, 0o600))
         self.con = sqlite3.connect(self.db_path)
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA journal_mode=WAL")

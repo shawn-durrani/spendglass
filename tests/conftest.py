@@ -7,6 +7,7 @@ and no test can reach the network (MockTransport intercepts everything).
 from __future__ import annotations
 
 import json
+import os
 
 import httpx
 import pytest
@@ -135,6 +136,17 @@ class FakeAPI:
                 return httpx.Response(403, json={"error": {"message": "plan"}})
             return httpx.Response(200, json=_paged(TRADES))
         return httpx.Response(404, json={"error": {"message": f"no route {path}"}})
+
+
+@pytest.fixture(autouse=True)
+def _umask_restored():
+    """_secure_store_dir makes the process umask owner-only (0o077, issue
+    #71). Put the runner's own back after each test, so one test's startup
+    never decides the modes another test's files get."""
+    old = os.umask(0o022)
+    os.umask(old)
+    yield
+    os.umask(old)
 
 
 @pytest.fixture()

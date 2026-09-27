@@ -1,6 +1,8 @@
 """Store invariants: idempotent upserts, exact money, WAL, refuse-newer-schema."""
 
+import os
 import sqlite3
+import stat
 
 import pytest
 
@@ -10,6 +12,25 @@ from tests.conftest import ACCOUNTS, CONNECTIONS, TXNS
 
 def test_wal_mode(store):
     assert store.con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_a_new_store_is_owner_only(tmp_path):
+    """Whoever makes the store first, the server or a first `sync` from the
+    command line, it's private from the first byte (issue #71). SQLite
+    gives -wal and -shm the database's own mode."""
+    old = os.umask(0o022)
+    try:
+        with Store(tmp_path / "data" / "store.db") as s:
+            s.con.execute("INSERT OR REPLACE INTO meta (key, value) "
+                          "VALUES ('probe', '1')")
+            s.con.commit()
+            modes = {p.name: stat.S_IMODE(p.stat().st_mode)
+                     for p in (tmp_path / "data").iterdir()}
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE((tmp_path / "data").stat().st_mode) == 0o700
+    assert modes == {"store.db": 0o600, "store.db-wal": 0o600,
+                     "store.db-shm": 0o600}
 
 
 def test_to_cents_exact():

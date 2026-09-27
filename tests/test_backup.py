@@ -5,6 +5,7 @@ runs on an injected clock."""
 
 import os
 import sqlite3
+import stat
 import threading
 import time
 from pathlib import Path
@@ -33,6 +34,22 @@ def test_snapshot_is_consistent_and_openable(tmp_path):
             "SELECT value FROM meta WHERE key='probe'").fetchone()[0] == "1"
     finally:
         con.close()
+
+
+def test_a_snapshot_is_owner_only_from_the_first_byte(tmp_path):
+    """A snapshot is a full copy of the store. The timer takes it on its
+    own thread, after startup has tightened the folder, so it can't rely on
+    that pass or on the process umask (issue #71). The mirror's copy keeps
+    the same mode."""
+    old = os.umask(0o022)
+    try:
+        db = _mkstore(tmp_path)
+        dest = backup.backup(db, mirror_dir=tmp_path / "mirror")
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o600
+    mirrored = tmp_path / "mirror" / dest.name
+    assert stat.S_IMODE(mirrored.stat().st_mode) == 0o600
 
 
 def test_missing_db_is_a_noop(tmp_path):

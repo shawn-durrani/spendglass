@@ -106,7 +106,13 @@ def _secure_store_dir(store_dir: Path) -> None:
     protecting loose files inside is exactly what a copy loses. Runs on
     every start - repair rather than trust, like start.sh does for .env
     (issue #23). Symlinks are skipped: chmod would follow them out of the
-    store dir."""
+    store dir.
+
+    Everything the server writes after this is owner-only from its first
+    byte too: the umask becomes 0o077 for the process (issue #71). Without
+    it, a snapshot the backup timer took, or an auth file written on
+    sign-in, stayed 0644 until the next restart repaired it."""
+    os.umask(0o077)
     def tighten(path: Path, mode: int) -> None:
         try:
             if not path.is_symlink():
