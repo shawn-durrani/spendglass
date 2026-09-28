@@ -1451,6 +1451,12 @@ tr:hover td{background:var(--accent-soft)}
    wrap (never the body), everything tappable grows to a finger. Desktop
    above 640px is untouched. */
 @media(pointer:coarse){
+  /* every field you type into at 16px: iOS Safari zooms the page in on a
+     smaller one and doesn't zoom back out. !important beats the per-panel
+     13px rules. Never maximum-scale or user-scalable=no: that blocks
+     pinch zoom for anyone who needs it. */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]),
+  textarea,select,[contenteditable]:not([contenteditable=false]){font-size:16px!important}
   .copy{opacity:.55}          /* no hover on touch — keep it visible */
   th .rz{display:none}        /* header resize is a mouse affordance; on
                                  touch, panning the tablewrap replaces it */
@@ -1460,7 +1466,7 @@ tr:hover td{background:var(--accent-soft)}
 @media(max-width:640px){
   .wrap{padding:12px}
   .topbar{flex-wrap:wrap}
-  .topright{padding-top:0;flex-wrap:wrap;white-space:normal}
+  .topright{padding-top:0;flex-wrap:wrap;white-space:normal;max-width:100%}
   .filters{grid-template-columns:1fr 1fr}
   #f-q{grid-column:1/-1}
   button.link{padding:8px 10px}
@@ -2555,6 +2561,9 @@ details.explain b{color:var(--fg)}
 /* ── phone width (#26): the top bar wraps, tap targets grow, and nothing
    escapes the viewport. Charts already follow their container. */
 @media(pointer:coarse){
+  /* every field you type into at 16px, as on the main page */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=hidden]),
+  textarea,select,[contenteditable]:not([contenteditable=false]){font-size:16px!important}
   .seg button{padding:9px 14px}
   .sglist div{padding:10px 14px}
 }

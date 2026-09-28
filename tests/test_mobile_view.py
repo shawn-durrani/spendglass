@@ -49,3 +49,31 @@ def test_main_header_wraps_via_class_not_inline_style():
 
 def test_gate_buttons_go_full_width_on_small_screens():
     assert "#gate button:not(.link){width:100%}" in PAGE
+
+
+def test_every_text_field_is_16px_on_touch():
+    """#73: iOS Safari zooms the page in when you tap a field under 16px and
+    doesn't zoom back out. Both pages hold every text field at 16px on a
+    touch screen, with !important so the per-panel 13px rules can't win."""
+    rule = ("textarea,select,[contenteditable]:not([contenteditable=false])"
+            "{font-size:16px!important}")
+    for page in (PAGE, PAGE_VIZ):
+        block = page.split("@media(pointer:coarse){", 1)[1].split("\n}", 1)[0]
+        assert rule in block
+        inputs = block.split("input:not(", 1)[1].split(",", 1)[0]
+        for t in ("text", "password", "search", "number", "date"):
+            assert f"[type={t}]" not in inputs
+
+
+def test_pinch_zoom_stays_on():
+    """The fix for focus zoom is 16px fields, never a viewport that blocks
+    pinch zoom for people who need it."""
+    for page in (PAGE, PAGE_VIZ):
+        meta = page.split('<meta name="viewport"', 1)[1].split(">", 1)[0]
+        assert "maximum-scale" not in meta and "user-scalable" not in meta
+
+
+def test_main_header_links_wrap_inside_the_screen():
+    """#73: .topright is flex:none, so without a cap its links ran 9px past
+    a 375px screen and the page panned sideways."""
+    assert ".topright{padding-top:0;flex-wrap:wrap;white-space:normal;max-width:100%}" in PAGE
