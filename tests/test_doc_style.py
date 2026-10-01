@@ -236,13 +236,15 @@ def test_long_docs_stay_navigable():
 # rule below holds it. Everything above runs on every markdown file.
 # ---------------------------------------------------------------------------
 
-CONVERTED: set[str] = set()
+CONVERTED = {
+    "docs/MCP.md",
+}
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
 # is not one of these reads as shouting. Add one when a converted doc needs it;
 # a name in a code span or a file name like README.md is never read as prose.
 CAPS_ALLOWED = {"API", "CLI", "DNS", "GPT", "HTTP", "HTTPS", "ISO", "JSON",
-                "MCP", "MIT", "PDF", "SDK", "STT", "URL", "WAV"}
+                "MCP", "MIT", "PDF", "SDK", "SQL", "STT", "URL", "WAV"}
 
 # A colon may introduce a list, a command or a quoted value. Approximated as:
 # what follows starts with a backtick or a quote, holds an inline list (two or
