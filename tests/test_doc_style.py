@@ -245,6 +245,7 @@ CONVERTED = {
     "docs/MCP.md",
     "docs/MERCHANTS.md",
     "docs/OPERATIONS.md",
+    "docs/README.md",
 }
 
 # Capitals are for acronyms. An all-capital word of three or more letters that
