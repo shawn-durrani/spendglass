@@ -1,8 +1,11 @@
 # Operations: keeping Spendglass running
 
-Spendglass is a long-running local service on port 8903. Left to `./start.sh`
-it dies with your terminal, and a crash or a reboot leaves it down until you
-notice. On macOS, launchd fixes that.
+Spendglass is a service that runs on your computer, on port 8903. If
+you start it with `./start.sh`, it stops when you close the terminal,
+and a crash or a reboot leaves it down until you notice. A supervisor
+fixes that. It's a program that starts another one and keeps it
+running. On macOS the built-in one is
+[launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
 
 ## Install the supervisor
 
@@ -10,13 +13,18 @@ notice. On macOS, launchd fixes that.
 ops/install-supervisor.sh
 ```
 
-The agent is `dev.spendglass.server`. It runs `start.sh`, starts at login,
-restarts within seconds if the process exits, and survives reboots. Logs go to
-`data/service.log`.
+The script hands Spendglass to launchd as an agent named
+`dev.spendglass.server`, which runs `start.sh`. It first stops any copy
+you started by hand on the port, so launchd owns the one real copy, and
+it's safe to run again. From then on the app starts when you log in,
+restarts within seconds if it exits, and comes back after a reboot once
+you log in. If it keeps crashing, launchd waits ten seconds between
+tries. Its output goes to `data/service.log`.
 
 ## Everyday commands
 
-Run these from the repo folder, since `tail` is relative to it.
+Run these from the repo folder, because the `tail` path is relative to
+it.
 
 ```sh
 # restart, after a git pull or an .env change
@@ -32,74 +40,112 @@ tail -f data/service.log
 launchctl bootout gui/$(id -u)/dev.spendglass.server
 ```
 
-While the supervisor holds port 8903, `./start.sh` refuses to start a second
-instance. Killing the process by hand only makes launchd start it again, so
-use the restart command above. `./start.sh` becomes the right command again
-once you `bootout` the agent.
+`bootout` lasts until you next log in. The agent's file stays in
+`~/Library/LaunchAgents`, and launchd loads it again at login. To stop
+supervising for good, delete `~/Library/LaunchAgents/dev.spendglass.server.plist`
+after the `bootout`.
 
-A restart cuts short whatever the service is doing, so ask first:
+While the supervisor holds port 8903, `./start.sh` refuses to start a
+second copy. Killing the process by hand only makes launchd start it
+again, so use the restart command. `./start.sh` is the right command
+again once you `bootout` the agent.
+
+## Before you restart
+
+A restart cuts short whatever the service is doing, so ask it first:
 
 ```sh
 curl -s http://127.0.0.1:8903/api/busy
 ```
 
-It answers `{"busy": false, "reasons": []}` when nothing is running.
-Otherwise it names the work with fixed labels: `sync`, `enrich`, `lookup`,
-`classify`, `sweep`, `propagate` or `backup`. The route needs no login and
-never carries content. The fleet's deploy watcher waits on it before
-restarting spendglass. A sync run left open by a crash stops counting after
-an hour, so a stale row cannot hold every deploy.
+It answers `{"busy":false,"reasons":[]}` when nothing is running.
+When something is, it names the work with fixed labels: `sync`, `enrich`,
+`lookup`, `classify`, `sweep`, `propagate` or `backup`. The route needs
+no sign-in and never carries content. The fleet's deploy watcher waits
+on it before it restarts Spendglass. A sync run left open by a crash
+stops counting after an hour, so a stale row can't hold up every
+deploy.
 
 ## Syncing
 
-The first sync backfills 365 days (`SPENDGLASS_BACKFILL_DAYS`, up to the CDR
-two-year cap):
+Run the first sync by hand. It reaches back 365 days, which
+`SPENDGLASS_BACKFILL_DAYS` in [docs/CONFIG.md](CONFIG.md#sync) changes.
 
 ```sh
 .venv/bin/python -m spendglass.sync
 ```
 
-While the server runs it keeps itself fresh: sync and enrich run every N hours
-as subprocesses, six by default, set in the admin panel.
+While the server runs, it keeps the store fresh by itself. Every six
+hours by default, measured from the last good sync, it runs sync and
+then enrichment, each as its own process. You set the interval in the
+admin panel. After a failed sync it tries again 15 minutes later.
 
-Every MCP response but one carries `as_of` and `stale` flags, so a store that
-has stopped syncing answers loudly. The UI banner shows the last sync and the
-last backup.
+The web app's banner shows the last sync and the last backup. Each
+agent tool's answer says how fresh the data is, as
+[docs/MCP.md](MCP.md#freshness) explains, so a store that has stopped
+syncing says so.
 
 ## Backups
 
-The server backs itself up: consistent snapshots into `data/backups/` at
-startup and every `SPENDGLASS_BACKUP_INTERVAL_HOURS` (default 24, `0` disables),
-keeping the newest `SPENDGLASS_BACKUP_KEEP` (default 10). The interval goes by
-the clock, so time the Mac spends asleep counts. A snapshot that fell due
-during sleep is taken within five minutes of waking, if the store has changed.
-Set `SPENDGLASS_BACKUP_MIRROR_DIR` to a synced folder for off-machine copies.
-The banner warns if snapshots stall.
+The server backs itself up. It takes a consistent snapshot into a
+`backups` folder beside the store, `data/backups/` by default, at
+startup and then every `SPENDGLASS_BACKUP_INTERVAL_HOURS`. It keeps the
+newest `SPENDGLASS_BACKUP_KEEP` snapshots, and
+[docs/CONFIG.md](CONFIG.md#backups) has the defaults. A snapshot is
+skipped whenever the store hasn't changed since the newest one,
+including the one at startup.
 
-This matters because the store holds two things that are hard to replace: bank
-rows, re-fetchable only within the backfill window, and your own decisions,
-which are not re-fetchable at all.
+The interval goes by the clock, so time the Mac spends asleep counts.
+The server checks every five minutes, so a snapshot that fell due
+during sleep is taken within five minutes of waking. A failed backup
+waits a full interval before it tries again. Set
+`SPENDGLASS_BACKUP_MIRROR_DIR` to a synced folder to keep a copy off
+the computer.
+
+The banner warns when backups stall, which means the newest snapshot
+is more than twice the interval old, or there's none. A store that
+hasn't changed takes no snapshots, so with scheduled sync off that
+warning can show when nothing is wrong.
+
+Backups matter because the store holds two things that are hard to
+replace. Bank rows can be fetched again, but only as far back as the
+backfill window reaches. Your own decisions can't be fetched again at
+all. A snapshot holds the store only, so your keys in `.env`, your
+password, your passkeys and your sessions aren't in it.
 
 ### Restore
 
-1. Stop the server.
+1. Stop the server. Under the supervisor, that's the `bootout` command.
 2. Copy a snapshot from `data/backups/` over `data/store.db`.
-3. Remove `store.db-wal` and `store.db-shm` if present.
-4. Start the server.
+3. Remove `store.db-wal` and `store.db-shm` if they're there.
+4. Start the server. Under the supervisor, run
+   `ops/install-supervisor.sh` again.
 
 ## Updating
+
+Under the supervisor, pull and restart:
+
+```sh
+git pull && launchctl kickstart -k gui/$(id -u)/dev.spendglass.server
+```
+
+Without it, stop the running copy first, then:
 
 ```sh
 git pull && ./start.sh
 ```
 
-Dependencies reinstall when they change, and schema migrations run forward
-automatically. A database written by *newer* code is refused rather than
-mangled, so upgrade the code rather than downgrading the data.
+`start.sh` reinstalls the dependencies when they change. The store adds
+any new tables and columns it needs each time it opens. A database
+written by newer code is refused, so it never gets mangled. Upgrade the
+code, and don't downgrade the data.
 
 ## Not on macOS?
 
-The same idea works with `systemd`: a unit with `Restart=always` and
-`WantedBy=default.target`. No unit file ships here yet, but the plist
-template's command (`bash start.sh`, working directory = the repo) maps
-directly onto `ExecStart` and `WorkingDirectory`.
+The same idea works with
+[systemd](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html),
+the supervisor on most Linux systems. You'd write a unit with
+`Restart=always` and `WantedBy=default.target`. No unit file ships
+yet, but the plist template's command maps straight across. Its
+command, `bash start.sh`, goes in `ExecStart`, and its working
+directory, the repo, goes in `WorkingDirectory`.
