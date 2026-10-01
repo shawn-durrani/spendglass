@@ -238,6 +238,7 @@ def test_long_docs_stay_navigable():
 
 CONVERTED = {
     "SECURITY.md",
+    "docs/CONFIG.md",
     "docs/MCP.md",
 }
 
@@ -245,7 +246,7 @@ CONVERTED = {
 # is not one of these reads as shouting. Add one when a converted doc needs it;
 # a name in a code span or a file name like README.md is never read as prose.
 CAPS_ALLOWED = {"API", "CLI", "DNS", "GPT", "HTTP", "HTTPS", "ISO", "JSON",
-                "MCP", "MIT", "PDF", "SDK", "SQL", "STT", "URL", "WAV"}
+                "CDR", "MCP", "MIT", "PDF", "SDK", "SQL", "STT", "URL", "WAV"}
 
 # A colon may introduce a list, a command or a quoted value. Approximated as:
 # what follows starts with a backtick or a quote, holds an inline list (two or
@@ -614,3 +615,19 @@ def test_docs_index_stays_complete():
         assert "docs/README.md" in text, (
             f"{entry} must link the docs index, or it is invisible to the "
             "audience it was written for")
+
+
+def test_config_reference_names_every_variable():
+    """docs/CONFIG.md says it holds every setting. Each environment variable
+    the app, its launcher or its supervisor installer reads must appear
+    there, or the page quietly lags the code (#77 found REDBARK_API_URL,
+    SPENDGLASS_AUTOSYNC and OPENAI_API_KEY missing)."""
+    sources = sorted((REPO / "spendglass").glob("*.py")) + [
+        REPO / "start.sh", REPO / "ops" / "install-supervisor.sh"]
+    pattern = re.compile(
+        r"\b(SPENDGLASS_[A-Z_]+|REDBARK_[A-Z_]+|ANTHROPIC_API_KEY|OPENAI_API_KEY)\b")
+    read = {m for path in sources for m in pattern.findall(path.read_text())}
+    assert "SPENDGLASS_DB" in read and "REDBARK_API_KEY" in read, read
+    config_doc = (REPO / "docs" / "CONFIG.md").read_text()
+    missing = sorted(v for v in read if f"`{v}" not in config_doc)
+    assert not missing, f"variables the code reads but docs/CONFIG.md never names: {missing}"
