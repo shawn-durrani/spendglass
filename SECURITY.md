@@ -20,7 +20,7 @@ The web app listens on `127.0.0.1` and nowhere else. The MCP server
 talks to your agent over standard input and output, and it listens on
 no port at all. The web app also checks the `Host` header against a
 short list of its own addresses. That stops
-[DNS rebinding](https://developer.mozilla.org/en-US/docs/Glossary/DNS_rebinding),
+[DNS rebinding](https://en.wikipedia.org/wiki/DNS_rebinding),
 where a web page you visit points its own name at your computer to
 reach the app. A `POST` request that the browser marks as coming from another
 site is refused, and the session cookie is `HttpOnly` with `SameSite`
