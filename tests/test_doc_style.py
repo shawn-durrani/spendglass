@@ -241,6 +241,7 @@ CONVERTED = {
     "SECURITY.md",
     "docs/CONFIG.md",
     "docs/MCP.md",
+    "docs/MERCHANTS.md",
     "docs/OPERATIONS.md",
 }
 
