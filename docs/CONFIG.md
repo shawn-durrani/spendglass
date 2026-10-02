@@ -103,11 +103,12 @@ A passkey can never lock you out, because the password always stays.
 Passkeys work only on `localhost`. A browser won't let an IP address
 hold one, so `127.0.0.1` keeps the password lock screen.
 
-On the first start, the terminal prints the recovery secret in full.
-Paste it on your first visit to set your password. Until a password
-exists, every start prints a secret, so if you miss it, restart and
-look again. Unless you set one yourself, each start makes a new one,
-and the secret from before a restart stops working.
+On the first start, the terminal prints a recovery secret in full,
+unless you set your own. Paste it on your first visit to set your
+password. Until a password exists, every start prints a secret, so if
+you miss it, restart and look again. Unless you set one yourself, each
+start makes a new one, and the secret from before a restart stops
+working.
 
 Once a password exists, the secret is never printed again, because a
 printed secret piles up in server logs. You don't need it for everyday
@@ -119,9 +120,9 @@ choose a new one. Put `SPENDGLASS_RECOVERY_SECRET=anything-you-pick` in
 edit `.env` on this computer is what proves it's you.
 
 You can also set `SPENDGLASS_RECOVERY_SECRET` before the first start,
-which keeps the secret the same from day one. The first start still
-prints it in full. After that, the startup banner says one is
-configured without printing it.
+which keeps the secret the same from day one. The app never prints a
+secret you set. The first start tells you to use it, and later starts
+say one is configured.
 
 ## Links to your other apps
 

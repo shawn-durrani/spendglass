@@ -412,6 +412,19 @@ def test_banner_names_the_configured_secret_without_printing_it():
     assert "SPENDGLASS_RECOVERY_SECRET" in later
 
 
+def test_first_run_never_prints_a_secret_the_owner_set():
+    """Issue #95: a secret set in SPENDGLASS_RECOVERY_SECRET was printed on
+    the first run too, into data/service.log under the supervisor. The
+    owner knows it already, so the banner names the setting instead."""
+    from spendglass.ui import startup_banner
+    secret = "owner-chosen-secret-123"
+    first = "\n".join(startup_banner(first_run=True, secret_configured=True,
+                                     port=8903, secret=secret))
+    assert secret not in first
+    assert "SPENDGLASS_RECOVERY_SECRET" in first
+    assert "set a password" in first
+
+
 def test_store_dir_becomes_owner_only(tmp_path):
     """The store directory is the sensitive unit: DB, auth records, and any
     redirected service log live there, so it goes owner-only at startup."""
