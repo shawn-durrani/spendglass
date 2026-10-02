@@ -26,7 +26,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .store import Store
+from .store import Store, dollars_to_cents
 
 STALE_AFTER_HOURS = 26  # a daily sync plus slack; beyond this, shout
 
@@ -113,9 +113,11 @@ def search_transactions(
     if date_to:
         where.append("t.date <= ?"); params.append(date_to)
     if amount_min is not None:
-        where.append("t.amount_cents >= ?"); params.append(int(amount_min * 100))
+        where.append("t.amount_cents >= ?")
+        params.append(dollars_to_cents(amount_min))
     if amount_max is not None:
-        where.append("t.amount_cents <= ?"); params.append(int(amount_max * 100))
+        where.append("t.amount_cents <= ?")
+        params.append(dollars_to_cents(amount_max))
     cond = " AND ".join(where)
 
     totals = con.execute(

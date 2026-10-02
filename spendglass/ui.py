@@ -68,7 +68,7 @@ from .enrich import merchant_key, strip_noise
 from .lookup import (SETTING_DEFAULTS, decide, ensure_schema, get_settings,
                      identify_clear_merchants, lookup_merchants,
                      propagate_decisions, set_settings)
-from .store import Store
+from .store import Store, dollars_to_cents
 
 # Overridable so a second instance (e.g. against a test store) can run
 # beside the real one; the Host allowlist tracks whatever port is chosen.
@@ -538,10 +538,15 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             where.append("t.date >= ?"); params.append(date_from)
         if date_to:
             where.append("t.date <= ?"); params.append(date_to)
-        if amount_min is not None:
-            where.append("t.amount_cents >= ?"); params.append(int(amount_min * 100))
-        if amount_max is not None:
-            where.append("t.amount_cents <= ?"); params.append(int(amount_max * 100))
+        try:
+            if amount_min is not None:
+                where.append("t.amount_cents >= ?")
+                params.append(dollars_to_cents(amount_min))
+            if amount_max is not None:
+                where.append("t.amount_cents <= ?")
+                params.append(dollars_to_cents(amount_max))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if theme:
             where.append(themes_mod.MATCH); params.append(theme)
         cond = " AND ".join(where)

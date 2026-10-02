@@ -271,6 +271,34 @@ def test_sort_by_amount(ui):
     assert cents == sorted(cents)
 
 
+def test_amount_filters_are_exact_to_the_cent(ui):
+    """Issue #93: the route turned dollars into cents with int(x * 100), so
+    a lower bound of -19.99 left out a -19.99 row and an upper bound of
+    -0.29 let a -0.28 one in. Something that isn't a number is a 400."""
+    client, auth = ui
+    _enroll(client)
+    rows = []
+    for i, amount in enumerate(("-19.99", "-0.29", "-0.28")):
+        row = dict(TXNS[0])
+        row.update(id=f"txn-awkward-{i}", amount=amount,
+                   description=f"GLOBEX {i}", merchantName="Globex")
+        rows.append(row)
+    with Store(auth.auth_file.parent / "store.db") as s:
+        s.upsert_transactions(rows, "conn-bank-1")
+
+    def amounts(**params):
+        r = client.get("/api/transactions", params={"q": "globex", **params})
+        assert r.status_code == 200, r.text
+        return sorted(x["amount_cents"] for x in r.json()["data"])
+
+    assert amounts(amount_min=-19.99) == [-1999, -29, -28]
+    assert amounts(amount_max=-0.29) == [-1999, -29]
+    assert amounts(amount_min=-0.29, amount_max=-0.29) == [-29]
+    for bad in ("nan", "inf"):
+        r = client.get("/api/transactions", params={"amount_min": bad})
+        assert r.status_code == 400, (bad, r.status_code)
+
+
 def test_query_endpoints_reject_mutating_methods(ui):
     """Query endpoints take GET only: mutating methods are refused with 405."""
     client, _ = ui
