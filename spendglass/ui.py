@@ -1261,14 +1261,27 @@ def build_app() -> FastAPI:
     autosync.start(cfg.db_path, cfg.autosync)
 
     # Same principle for restore points: snapshot at startup and on a timer.
+    # The startup snapshot runs HERE, synchronously, before create_app below
+    # — not via backup_mod.start()'s own first tick, which fires on its own
+    # scheduler thread with nothing to order it against this one. Calling
+    # start() first and create_app() second (the previous shape) left "back
+    # up before migration" an unenforced race between the two threads, not
+    # the guarantee the #90 override-rules PR described (#91 follow-up).
+    # Skipped, like every tick, when nothing has changed since the newest
+    # snapshot.
     from . import backup as backup_mod
+    if backup_mod.changed_since_last_snapshot(cfg.db_path):
+        backup_mod.backup(cfg.db_path, cfg.backup_keep, cfg.backup_mirror_dir)
+
+    app = create_app(cfg.db_path, auth, propagator=live_propagator,
+                     autosync_env=cfg.autosync,
+                     backup_interval_hours=cfg.backup_interval_hours,
+                     sibling_apps=cfg.sibling_apps)
+
+    # The periodic timer for every backup after this one.
     backup_mod.start(cfg.db_path, cfg.backup_interval_hours,
                      cfg.backup_keep, cfg.backup_mirror_dir)
-
-    return create_app(cfg.db_path, auth, propagator=live_propagator,
-                      autosync_env=cfg.autosync,
-                      backup_interval_hours=cfg.backup_interval_hours,
-                      sibling_apps=cfg.sibling_apps)
+    return app
 
 
 def main() -> None:

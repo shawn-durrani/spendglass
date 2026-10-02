@@ -31,13 +31,76 @@ working directory, since nothing is pip-installed):
 
 from __future__ import annotations
 
+import sqlite3
+
 from mcp.server.mcpserver import MCPServer
 
+from . import overrides as _overrides_mod
 from . import queries
 from .config import Config
 
 mcp = MCPServer("spendglass")
 _cfg = Config.load()
+
+
+_schema_ensured = False  # set once, lazily — see _ensure_derived_schema
+
+
+def _ensure_derived_schema() -> None:
+    """queries.py, trends.py and themes.py join against `merchants`,
+    `merchant_lookups`, `category_overrides` and `themes`/`theme_rules` for
+    the effective-category formula (issue #90/#91) and theme matching —
+    this process may be the very first one to ever open the store, with the
+    UI server (which normally ensures these on its own startup, in
+    create_app) never having run. Same additive, idempotent schemas as
+    there: CREATE TABLE IF NOT EXISTS plus idempotent seeding, never a
+    bank-sourced column. A fresh `themes` table still holds zero themes —
+    nothing here invents one — but theme_spend can now say so correctly
+    instead of reporting "themes not initialised".
+
+    Backed up first, and synchronously — not racing a backup-scheduler
+    thread the way the UI server's own startup does (see ui.py's
+    build_app) — so "back up before migration" is an actual guarantee at
+    this entry point. Skipped when nothing has changed since the newest
+    snapshot, so repeated calls (or a restarted server, one per chat
+    session) don't spam data/backups/.
+
+    Lazy on purpose, run from the tools that need it rather than at import:
+    importing this module (as the pinned-tool-list test does) must never
+    touch a real store, with no `SPENDGLASS_DB` override in sight."""
+    global _schema_ensured
+    if _schema_ensured:
+        return
+    _schema_ensured = True
+    from .enrich import ensure_schema as _enrich_schema
+    from .lookup import ensure_schema as _lookup_schema
+    from .store import Store
+    from .themes import ensure_schema as _themes_schema
+    from .transfers import ensure_schema as _transfers_schema
+    try:
+        from . import backup as _backup_mod
+        if _backup_mod.changed_since_last_snapshot(_cfg.db_path):
+            _backup_mod.backup(_cfg.db_path, _cfg.backup_keep, _cfg.backup_mirror_dir)
+    except Exception:
+        pass  # best-effort: no store yet, or a snapshot failed; proceed anyway
+    try:
+        with Store(_cfg.db_path) as _s:
+            _enrich_schema(_s)
+            _lookup_schema(_s)
+            _transfers_schema(_s)
+            _themes_schema(_s)
+            _overrides_mod.ensure_schema(_s)
+    except Exception:
+        pass  # a store that predates sync entirely; queries fall back
+
+
+def _ro_enriched_connection() -> sqlite3.Connection:
+    """Same mode=ro connection as open_readonly(), for the tools whose SQL
+    joins against the derived schema _ensure_derived_schema guarantees
+    first. Plain list_accounts/store_health/etc. keep calling
+    queries.open_readonly() directly — they don't need it."""
+    _ensure_derived_schema()
+    return queries.open_readonly(_cfg.db_path)
 
 
 def _with_freshness(payload: dict) -> dict:
@@ -69,12 +132,18 @@ def search_transactions(
 ) -> dict:
     """Search stored bank transactions. Filters combine with AND: free-text q
     (description/merchant), account_id (from list_accounts), merchant substring,
-    category (CDR code), direction ('debit' = money out, 'credit' = money in),
-    status ('posted'/'pending'), date_from/date_to (YYYY-MM-DD), amount_min/
+    category (EFFECTIVE category — the user's own overrides and corrections
+    for known bank mislabelling, issue #90, already applied; e.g. 'ALCOHOL'
+    finds bottle shops even though the bank filed them as Eating Out),
+    direction ('debit' = money out, 'credit' = money in), status
+    ('posted'/'pending'), date_from/date_to (YYYY-MM-DD), amount_min/
     amount_max (dollars, signed — debits are negative). Returns matched count,
     net_amount (SQL-computed — do not re-add amounts yourself), and up to
-    `limit` rows, newest first."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    `limit` rows, newest first. Each row carries the EFFECTIVE category and
+    subcategory under `category`/`subcategory`, plus the bank's own,
+    uncorrected CDR code under `raw_category` (and `raw_custom_category`)
+    for when the raw bank value itself is what's asked about."""
+    with _ro_enriched_connection() as con:
         return _with_freshness(
             queries.search_transactions(
                 con, q=q, account_id=account_id, merchant=merchant,
@@ -93,11 +162,15 @@ def spending_summary(
     direction: str = "debit",
     top: int = 25,
 ) -> dict:
-    """Aggregate spending in SQL: group_by one of 'category', 'merchant',
-    'month', 'account'; optional date range; direction 'debit' (money out,
-    default), 'credit', or 'both'. Amounts are computed by the database from
-    exact integer cents — report them as given, never recompute."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    """Aggregate spending in SQL: group_by one of 'category' (EFFECTIVE —
+    the user's own overrides and corrections for known bank mislabelling,
+    issue #90, already applied), 'subcategory' (effective), 'raw_category'
+    (the bank's own, uncorrected CDR code, for when that's specifically
+    what's asked about), 'merchant', 'month', 'account'; optional date
+    range; direction 'debit' (money out, default), 'credit', or 'both'.
+    Amounts are computed by the database from exact integer cents — report
+    them as given, never recompute."""
+    with _ro_enriched_connection() as con:
         return _with_freshness(
             queries.spending_summary(
                 con, group_by=group_by, date_from=date_from,
@@ -139,7 +212,7 @@ def spend_change_waterfall() -> dict:
     'everything else' remainder. Lead with the top mover as the actionable
     fact ("Dining drove most of the increase"), not the totals. All sums are
     SQL over integer cents — report as given."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.waterfall(con))
 
 
@@ -150,7 +223,7 @@ def spending_run_rate() -> dict:
     extrapolation, which lies when rent and annual bills are lumpy), and the
     trailing median month as the baseline. Positive delta_cents = on track to
     overshoot their own typical month; that delta is the headline."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.run_rate(con))
 
 
@@ -160,7 +233,7 @@ def price_creep() -> dict:
     latest occurrences, each annualised by cadence, plus the total. Individual
     rises look ignorable; the annualised figure is the decision — lead with
     it ("that streaming service is +$72/yr since it started")."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.price_creep(con))
 
 
@@ -172,7 +245,7 @@ def merchant_pareto(days: int = 90) -> dict:
     interest is excluded — it's a committed cost, see fixed_vs_variable.
     Use it to ration attention — cutting one top-five merchant beats
     trimming twenty tail categories."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.pareto(con, days=days))
 
 
@@ -182,7 +255,7 @@ def category_momentum() -> dict:
     average vs the 3 months before, split into heating (rising) and cooling
     (falling). Frame heating entries as trends to interrupt early, not
     emergencies."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.momentum(con))
 
 
@@ -192,7 +265,7 @@ def spending_anomalies() -> dict:
     12-month typical (median + 3×MAD), each with the culprit transactions
     attached. Always name the culprit merchant and date — an anomaly without
     an owner isn't actionable."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.anomalies(con))
 
 
@@ -202,7 +275,7 @@ def savings_wins() -> dict:
     categories held well below their prior-year level for 3+ months. This is
     the reward loop — when the user has acted on other insights, lead with
     the cumulative locked-in figure."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.wins(con))
 
 
@@ -213,7 +286,7 @@ def fixed_vs_variable() -> dict:
     it's a committed cost of debt already taken on. A rising fixed floor is
     the earliest structural warning — it determines financial slack
     regardless of month-to-month discipline."""
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         return _with_freshness(_trends.fixed_floor(con))
 
 
@@ -229,7 +302,7 @@ def subscriptions() -> dict:
     context. All arithmetic is SQL/deterministic — report figures as given."""
     from . import subscriptions as _subs
 
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         try:
             return _with_freshness(_subs.overview(con))
         except Exception:
@@ -247,7 +320,7 @@ def theme_spend(months: int = 12) -> dict:
     category question. Rules are user-editable; report figures as given."""
     from . import themes as _themes
 
-    with queries.open_readonly(_cfg.db_path) as con:
+    with _ro_enriched_connection() as con:
         try:
             out = _themes.summary(con, months_back=max(1, min(months, 24)))
             out["definitions"] = _themes.list_themes(con)

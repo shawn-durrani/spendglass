@@ -5,8 +5,12 @@ import sqlite3
 import pytest
 
 from spendglass import queries
+from spendglass.enrich import ensure_schema as enrich_schema
+from spendglass.lookup import ensure_schema as lookup_schema
+from spendglass.overrides import ensure_schema as overrides_schema
 from spendglass.store import Store
 from spendglass.sync import sync
+from spendglass.transfers import ensure_schema as transfers_schema
 from tests.conftest import ACCOUNTS, CATEGORIES, CONNECTIONS, TXNS
 
 
@@ -14,6 +18,13 @@ from tests.conftest import ACCOUNTS, CATEGORIES, CONNECTIONS, TXNS
 def populated(tmp_path):
     db = tmp_path / "store.db"
     with Store(db) as s:
+        # Same derived schemas ui.py's create_app and mcp_server.py's
+        # _ensure_derived_schema ensure at startup — queries.py's effective-
+        # category formula (issue #90/#91) joins against these.
+        enrich_schema(s)
+        lookup_schema(s)
+        transfers_schema(s)
+        overrides_schema(s)
         s.upsert_connections(CONNECTIONS)
         s.upsert_accounts(ACCOUNTS)
         s.upsert_categories(CATEGORIES)
@@ -91,6 +102,134 @@ def test_summary_rejects_unknown_group(populated):
     with pytest.raises(ValueError, match="group_by"):
         queries.spending_summary(con, group_by="1; DROP TABLE transactions")
     con.close()
+
+
+# ── effective category/subcategory (issue #90/#91 follow-up) ───────────────
+# Ground-truth review found search_transactions/spending_summary still
+# filtering/grouping by the bank's raw t.category — exactly the tools that
+# produced the misleading BANK_FEES/Eating Out/MERCHANDISE figures #90's
+# override rules were meant to fix. These prove the MCP-facing read paths
+# now show the corrected figures, with the raw bank value still reachable
+# explicitly, and that not one raw transaction column moved underneath.
+
+def _txn(s, i, date, description, merchant_name, cents, category,
+         direction="debit"):
+    key = merchant_name.strip().casefold()
+    s.con.execute(
+        """INSERT INTO transactions (id, account_id, date, description,
+           merchant_name, merchant_key, amount, amount_cents, direction,
+           category, status, raw, connection_id, first_seen_at, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,'posted','{"category":"%s"}','c1',?,?)"""
+        % category,
+        (f"t{i}", "a1", date, description, merchant_name, key,
+         str(cents / 100), cents if direction == "credit" else -abs(cents),
+         direction, category, date, date))
+
+
+@pytest.fixture()
+def reclassified(tmp_path):
+    """A mix of merchants: some caught by a built-in override rule, one
+    overridden further by a user's own merchant decision, and one that
+    matches no rule at all — proving rule preference and non-interference
+    together, not just each in isolation."""
+    with Store(tmp_path / "store.db") as s:
+        enrich_schema(s)
+        lookup_schema(s)
+        transfers_schema(s)
+        overrides_schema(s)
+        _txn(s, 1, "2026-01-05", "Interest charged", "Interest charged",
+             460000, "BANK_FEES")
+        _txn(s, 2, "2026-01-06", "BWS FAIRHAVEN", "BWS", 4200, "EATING_OUT")
+        _txn(s, 3, "2026-01-07", "SAMPLE CAFE FAIRHAVEN", "Sample Cafe",
+             1500, "EATING_OUT")
+        # A user's own merchant decision still outranks the built-in rule.
+        s.con.execute(
+            """INSERT INTO merchant_lookups (merchant_key, status,
+               resolved_name, resolved_category, resolved_subcategory)
+               VALUES ('bws', 'overridden', 'BWS', 'EATING_OUT', 'Takeaway')""")
+        s.con.commit()
+        raw_before = [dict(r) for r in s.con.execute(
+            "SELECT * FROM transactions ORDER BY id")]
+    return tmp_path / "store.db", raw_before
+
+
+def test_search_transactions_filters_by_effective_category(reclassified):
+    db, _ = reclassified
+    con = queries.open_readonly(db)
+    r = queries.search_transactions(con, category="LOAN_INTEREST")
+    assert r["matched"] == 1
+    assert r["transactions"][0]["id"] == "t1"
+    # Searching the bank's own raw code still finds it under BANK_FEES —
+    # nothing about the raw column changed, only what's reported as current.
+    raw = queries.search_transactions(con, category="BANK_FEES")
+    assert raw["matched"] == 0        # effective, not raw: this is correct
+    con.close()
+
+
+def test_search_transactions_exposes_effective_and_raw_category(reclassified):
+    db, _ = reclassified
+    con = queries.open_readonly(db)
+    r = queries.search_transactions(con, q="interest")
+    con.close()
+    row = r["transactions"][0]
+    assert row["category"] == "LOAN_INTEREST"       # corrected
+    assert row["raw_category"] == "BANK_FEES"        # bank's own code, intact
+    assert row["subcategory"] == "Mortgage Interest"
+
+
+def test_search_transactions_manual_override_beats_builtin_rule(reclassified):
+    db, _ = reclassified
+    con = queries.open_readonly(db)
+    r = queries.search_transactions(con, q="bws")
+    con.close()
+    row = r["transactions"][0]
+    assert row["category"] == "EATING_OUT"           # the user's own call
+    assert row["subcategory"] == "Takeaway"
+    assert row["raw_category"] == "EATING_OUT"        # bank agreed, here
+
+
+def test_spending_summary_groups_by_effective_category(reclassified):
+    db, _ = reclassified
+    con = queries.open_readonly(db)
+    r = queries.spending_summary(con, group_by="category", direction="debit")
+    con.close()
+    by_group = {g["group"]: g["amount"] for g in r["groups"]}
+    assert by_group["LOAN_INTEREST"] == "-4600.00"
+    assert by_group["EATING_OUT"] == "-57.00"         # BWS (user) + café
+    assert "BANK_FEES" not in by_group                # no longer misfiled here
+
+
+def test_spending_summary_raw_category_still_reachable(reclassified):
+    db, _ = reclassified
+    con = queries.open_readonly(db)
+    r = queries.spending_summary(con, group_by="raw_category", direction="debit")
+    con.close()
+    by_group = {g["group"]: g["amount"] for g in r["groups"]}
+    assert by_group["BANK_FEES"] == "-4600.00"        # the bank's own figure
+    assert by_group["EATING_OUT"] == "-57.00"
+
+
+def test_spending_summary_groups_by_effective_subcategory(reclassified):
+    db, _ = reclassified
+    con = queries.open_readonly(db)
+    r = queries.spending_summary(con, group_by="subcategory", direction="debit")
+    con.close()
+    by_group = {g["group"]: g["amount"] for g in r["groups"]}
+    assert by_group["Mortgage Interest"] == "-4600.00"
+    assert by_group["Takeaway"] == "-42.00"
+    assert by_group["(no subcategory)"] == "-15.00"   # Sample Cafe: no rule
+
+
+def test_reclassification_leaves_raw_transaction_rows_unchanged(reclassified):
+    db, raw_before = reclassified
+    con = queries.open_readonly(db)
+    queries.search_transactions(con)
+    queries.spending_summary(con, group_by="category")
+    con.close()
+    with Store(db) as s:
+        raw_after = [dict(r) for r in s.con.execute(
+            "SELECT * FROM transactions ORDER BY id")]
+    assert raw_after == raw_before
 
 
 def test_mcp_server_exposes_only_readonly_tools():
