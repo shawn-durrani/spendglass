@@ -80,7 +80,8 @@ hours by default, measured from the last good sync, it runs sync and
 then enrichment, each as its own process. You set the interval in the
 admin panel. After a failed sync it tries again 15 minutes later.
 
-The web app's banner shows the last sync and the last backup. Each
+The web app's banner shows the last good sync and the last backup. It
+also says when a sync is running or the latest one failed. Each
 agent tool's answer says how fresh the data is, as
 [docs/MCP.md](MCP.md#freshness) explains, so a store that has stopped
 syncing says so.

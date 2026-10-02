@@ -1847,14 +1847,22 @@ async function showMain(){
 }
 function renderBanner(h){
   const b=$("banner");b.innerHTML="";
-  const last=h.last_sync?new Date(h.last_sync.finished_at):null;
+  // The data is as old as the last sync that worked; the newest run may
+  // still be going or may have failed, and the banner says which (#94).
+  const last=h.last_success_at?new Date(h.last_success_at):null;
+  const run=h.last_sync;
   const ageH=last?(Date.now()-last)/36e5:Infinity;
   const stale=h.stale||ageH>26;
   b.insertAdjacentHTML("beforeend",
     `<span><span class="dot" style="background:${stale?"var(--warn-fg)":"var(--ok)"}"></span>
-     <b>${stale?"STALE":"Fresh"}</b> — last sync ${last?last.toLocaleString():"never"}</span>
+     <b>${stale?"STALE":"Fresh"}</b> — last good sync ${last?last.toLocaleString():"never"}</span>
      <span>${h.counts.transactions.toLocaleString()} transactions ·
      ${h.counts.accounts} accounts</span>`);
+  if(run&&run.status==="running")b.insertAdjacentHTML("beforeend",
+    `<span>a sync is running now</span>`);
+  else if(run&&run.status==="error")b.insertAdjacentHTML("beforeend",
+    `<span class="warnrow">⚠ The latest sync failed at
+     ${new Date(run.finished_at).toLocaleString()}</span>`);
   const bk=h.last_backup?new Date(h.last_backup):null;
   b.insertAdjacentHTML("beforeend",
     `<span>last backup ${bk?bk.toLocaleString():"never"}</span>`);

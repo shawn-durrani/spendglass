@@ -124,7 +124,7 @@ without credentials to keep it that way.
 
 If sync stops, agents would keep answering from old data and nobody
 would notice. Every MCP response carries how fresh the data is, and
-the web app's banner shows the last sync and the last backup. The
+the web app's banner shows the last good sync and the last backup. The
 fields, and the one tool that reports freshness its own way, are in
 [docs/MCP.md](docs/MCP.md#freshness).
 

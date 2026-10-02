@@ -44,16 +44,18 @@ back it up.
 ## Freshness
 
 If sync stops, an agent would keep answering from old data and nobody
-would notice. Every response carries `as_of`, when the last sync
-finished if it succeeded, and `stale`, with the reasons in
-`staleness_warnings`. `stale` is true while a sync is running, after
-one fails, and once the last good one is more than 26 hours old. It's
+would notice. Every response carries `as_of`, when the last good sync
+finished, and `stale`, with the reasons in `staleness_warnings`.
+`stale` is true when no sync has worked yet, when the latest one
+failed, and once the last good one is more than 26 hours old. It's
 also true when a bank connection has a warning, such as a connection
 that has stopped updating or a consent that may run out within 90
-days.
+days. A sync that's still running doesn't make the data stale by
+itself.
 
 `store_health` is the one exception, because it returns the store's
-own health record. That record has the last sync run, each
-connection's warnings and its own `stale` flag, which is true only
-when the last sync didn't succeed. It has no `as_of` and no
+own health record. That record has the last sync run, the time the
+last good one finished as `last_success_at`, each connection's warnings
+and its own `stale` flag. The flag is true when no sync has worked yet
+or the latest one failed. The record has no `as_of` and no
 `staleness_warnings` list.
