@@ -108,3 +108,148 @@ def test_match_clause_filters_transactions(store):
         f"SELECT t.id FROM transactions t WHERE {themes.MATCH}",
         ("Renovation",)).fetchall()
     assert [r["id"] for r in rows] == ["t2"]
+
+
+# ── Sport & Fitness (issue #113) ─────────────────────────────────────────
+#
+# Separate from the "store" fixture above: these tests build their own
+# synthetic rows so each one stays readable about exactly what it's
+# proving, using the house synthetic roster (Example Bank/Builders-style
+# fictional merchants), never anything from a real statement.
+
+from spendglass.enrich import merchant_key as _mkey  # noqa: E402
+
+
+@pytest.fixture()
+def sf_store(tmp_path):
+    with Store(tmp_path / "sport.db") as s:
+        enrich_schema(s)
+        lookup_schema(s)
+        transfers_schema(s)
+        themes.ensure_schema(s)
+        themes.create_theme(s, "Health & Fitness", template="Health & Fitness")
+        themes.create_theme(s, "Sport & Fitness", template="Sport & Fitness")
+        yield s
+
+
+def _mo():
+    first = date.today().replace(day=1)
+    return (first - timedelta(days=1)).strftime("%Y-%m")  # last complete month
+
+
+def _insert(store, id_, *, merchant_name, description=None, cents, direction="debit",
+            category="SHOPPING", key=None):
+    mo = _mo()
+    key = key if key is not None else _mkey(merchant_name, description)
+    store.con.execute(
+        """INSERT INTO transactions (id, account_id, date, description,
+           merchant_name, merchant_key, amount, amount_cents, direction,
+           category, status, raw, connection_id, first_seen_at, synced_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,'posted','{}','c1',?,?)""",
+        (id_, "a1", f"{mo}-10", description or merchant_name, merchant_name, key,
+         str(cents / 100), abs(cents) if direction == "credit" else -abs(cents),
+         direction, category, f"{mo}-10", f"{mo}-10"))
+    store.con.commit()
+
+
+def test_sport_fitness_template_excludes_pharmacy_and_medical():
+    subs = {v for k, v in themes.TEMPLATES["Sport & Fitness"] if k == "subcategory"}
+    assert "Pharmacy" not in subs
+    assert "Health Services" not in subs
+    # Health & Fitness itself is untouched by adding the new template.
+    assert ("subcategory", "Pharmacy") in themes.TEMPLATES["Health & Fitness"]
+    assert ("subcategory", "Health Services") in themes.TEMPLATES["Health & Fitness"]
+
+
+def test_bike_shop_and_bike_park_caught_despite_wrong_category(sf_store):
+    """The actual bug: a bike shop filed as Shopping and a bike park filed
+    as Transportation never reach a Gym & Fitness/Sport & Recreation
+    subcategory, so only a merchant rule can find them."""
+    _insert(sf_store, "t1", merchant_name="Example Bike Shop", cents=235400,
+            category="SHOPPING")
+    _insert(sf_store, "t2", merchant_name="Example Bike Park", cents=8900,
+            category="TRANSPORT")
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 235400 + 8900
+    assert by["Sport & Fitness"]["txn_count"] == 2
+    assert by["Health & Fitness"]["total_cents"] == 0  # unrelated theme, untouched
+
+
+def test_matches_bike_merchant_with_no_merchant_name(sf_store):
+    """merchant_name is often absent; the merchant_key normaliser falls
+    back to the description, and the rule must still see it there."""
+    _insert(sf_store, "t1", merchant_name=None, description="Example Bike Park entry",
+            cents=8900, category="TRANSPORT")
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 8900
+
+
+def test_avoids_broad_false_positives(sf_store):
+    """'cycle' alone would also catch a recycling centre and a motorcycle
+    shop, which is why the template uses 'bike'/'bicycle' instead."""
+    _insert(sf_store, "t1", merchant_name="Example Recycling Centre", cents=4000)
+    _insert(sf_store, "t2", merchant_name="Example Motorcycle Service", cents=9000)
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 0
+    assert by["Sport & Fitness"]["txn_count"] == 0
+
+
+def test_subcategory_and_merchant_rule_both_matching_does_not_double_count(sf_store):
+    sf_store.con.execute(
+        """INSERT INTO merchant_lookups (merchant_key, status, resolved_name,
+           resolved_subcategory) VALUES (?, 'approved', 'Example Bike Club',
+           'Sport & Recreation')""", (_mkey("Example Bike Club", None),))
+    sf_store.con.commit()
+    _insert(sf_store, "t1", merchant_name="Example Bike Club", cents=6000)
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 6000  # once, not twice
+    assert by["Sport & Fitness"]["txn_count"] == 1
+
+
+def test_refund_does_not_inflate_the_theme_total(sf_store):
+    """A charge that comes back as a refund is a credit, and credits are
+    never spend here (same rule every other view in the app follows) — so
+    the theme shows the original charge and never adds the refund on top."""
+    _insert(sf_store, "t1", merchant_name="Example Bike Park", cents=16000,
+            direction="debit", category="TRANSPORT")
+    _insert(sf_store, "t2", merchant_name="Example Bike Park", cents=16000,
+            direction="credit", category="TRANSPORT")
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 16000
+    assert by["Sport & Fitness"]["txn_count"] == 1
+
+
+def test_personal_training_joins_only_once_a_merchant_is_actually_identified(sf_store):
+    """No rule here assumes a specific trainer. Before identification an
+    arbitrary merchant never leaks in just for sounding fitness-adjacent;
+    after a lookup resolves one to the Personal Training subcategory, the
+    existing subcategory rule picks it up with no code change."""
+    _insert(sf_store, "unidentified", merchant_name="Example Studio 12", cents=9000)
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 0
+
+    key = _mkey("Example PT Studio", None)
+    sf_store.con.execute(
+        """INSERT INTO merchant_lookups (merchant_key, status, resolved_name,
+           resolved_subcategory) VALUES (?, 'approved', 'Example PT Studio',
+           'Personal Training')""", (key,))
+    sf_store.con.commit()
+    _insert(sf_store, "identified", merchant_name="Example PT Studio", cents=12000,
+            key=key)
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 12000
+
+
+def test_user_can_add_a_merchant_rule_once_a_trainer_is_identified(sf_store):
+    """The editable path the issue asks for: add_rule already lets any
+    theme take a merchant-specific rule the moment its key is known,
+    without waiting on a lookup."""
+    key = _mkey("Example Personal Trainer", None)
+    _insert(sf_store, "t1", merchant_name="Example Personal Trainer", cents=15000,
+            key=key)
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 0  # not yet, no rule for it
+
+    themes.add_rule(sf_store, "Sport & Fitness", "merchant", key)
+    by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
+    assert by["Sport & Fitness"]["total_cents"] == 15000

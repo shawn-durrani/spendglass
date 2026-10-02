@@ -78,7 +78,17 @@ plus vet plus insurance.
 
 A new store starts with no themes. You create your own in the admin
 panel, blank or from a template, and the templates are Renovation,
-Pets, Travel, Kids, AI, and Health & Fitness.
+Pets, Travel, Kids, AI, Health & Fitness, and Sport & Fitness.
+
+Sport & Fitness is kept separate from Health & Fitness so a chemist
+run or a doctor's visit never lands in a sport total. It starts with
+the gym and sport/recreation subcategories plus a handful of merchant
+rules for bike shops and bike parks, which usually get filed as
+Shopping or Transportation and would otherwise never reach a
+sport-flavoured subcategory at all. It has no rule for a personal
+trainer, because the app never guesses which business that is. Add
+one yourself from the theme editor once a lookup names the merchant,
+or straight away if you already know its name on your statement.
 
 Themes never change a transaction. They group transactions when you
 look, and the transactions stay as they are.

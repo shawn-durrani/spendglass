@@ -71,6 +71,37 @@ TEMPLATES: dict[str, list[tuple[str, str]]] = {
         ("subcategory", "Health Services"),
         ("subcategory", "Pharmacy"),
     ],
+    # Issue #113: Health & Fitness mixes sport with pharmacy and general
+    # medical, and bike shops/parks usually never reach a Gym & Fitness or
+    # Sport & Recreation subcategory in the first place — a bank or the
+    # classifier files them as Shopping or Transportation instead, so no
+    # subcategory rule ever sees them. This theme stays sport/fitness-only
+    # (no Health Services, no Pharmacy) and adds merchant rules that catch
+    # bike shops and bike parks by name regardless of their category.
+    #
+    # The merchant patterns are deliberately narrow words from the cycling
+    # domain, not a single generic fragment: "cycle" alone would also catch
+    # "recycle" and "motorcycle", so it's left out. "bike"/"bicycle" are the
+    # two that carry the meaning on their own.
+    #
+    # Personal training has no rule here: the owner's trainer isn't a known
+    # merchant, and this theme never guesses one (issue #113). Once a lookup
+    # resolves a trainer's merchant to the "Personal Training" subcategory —
+    # proposed by the lookup agent, or set by hand from the transaction table
+    # — it joins this theme on its own via the subcategory rule below. To
+    # pull it in sooner, or to catch a bike business these patterns miss,
+    # add a merchant rule for it from the admin panel's theme editor (or
+    # themes.add_rule), e.g. kind='merchant', value='%the trainer's key%'.
+    "Sport & Fitness": [
+        ("subcategory", "Gym & Fitness"),
+        ("subcategory", "Sport & Recreation"),
+        ("subcategory", "Personal Training"),
+        ("merchant", "%bike%"),
+        ("merchant", "%bicycle%"),
+        ("merchant", "%bmx%"),
+        ("merchant", "%cyclery%"),
+        ("merchant", "%velodrome%"),
+    ],
 }
 
 # Self-contained match: usable in any query that has transactions aliased t,
