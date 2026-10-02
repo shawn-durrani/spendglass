@@ -128,3 +128,48 @@ def test_loan_interest_counts_as_spend_principal_does_not(tmp_path):
             f"""SELECT ABS(COALESCE(SUM(t.amount_cents),0)) c {trends.JOIN}
                 WHERE {trends.SPEND}""").fetchone()
         assert row["c"] == 400000  # interest in, principal out
+
+
+def test_savings_wins_lists_a_stopped_charge_as_enrichment_stores_it(tmp_path):
+    """Issue #92: enrichment stores a debit's typical amount signed, as
+    "-19.99", and the wins check wanted it above zero, so a stopped charge
+    never showed. Through a float, 19.99 dollars was also 1998 cents."""
+    from datetime import timedelta
+
+    from spendglass import enrich
+    from tests.conftest import ACCOUNTS, CATEGORIES, CONNECTIONS
+
+    def monthly(merchant, amount, start, n=4):
+        return [{"id": f"gen-{merchant}-{i}", "accountId": "acc-1",
+                 "accountName": "Everyday", "status": "posted",
+                 "date": (start + timedelta(days=30 * i)).isoformat(),
+                 "datetime": None, "postDate": None, "postDatetime": None,
+                 "valueDate": None, "valueDatetime": None,
+                 "description": f"{merchant} PAYMENT", "amount": amount,
+                 "direction": "debit", "category": None,
+                 "customCategory": None, "customCategoryGroup": None,
+                 "merchantName": merchant, "merchantCategoryCode": None}
+                for i in range(n)]
+
+    today = date.today()
+    with Store(tmp_path / "wins.db") as s:
+        s.upsert_connections(CONNECTIONS)
+        s.upsert_accounts(ACCOUNTS)
+        s.upsert_categories(CATEGORIES)
+        # Stopped about seven months ago, and still going today.
+        s.upsert_transactions(
+            monthly("Globex Streaming", "-19.99", today - timedelta(days=300))
+            + monthly("Initech Gym", "-30.00", today - timedelta(days=95)),
+            "conn-bank-1")
+        enrich.rebuild_merchants(s)
+        assert enrich.detect_recurring(s) == 2
+        stored = {r["display_name"]: r["typical_amount"] for r in s.con.execute(
+            "SELECT display_name, typical_amount FROM recurring_charges")}
+        assert sorted(stored.values()) == ["-19.99", "-30.00"]
+
+        w = trends.wins(s.con)
+    cancelled = [x for x in w["wins"] if x["kind"] == "cancelled_recurring"]
+    assert len(cancelled) == 1, cancelled
+    assert "globex" in cancelled[0]["merchant"].lower()
+    assert cancelled[0]["annualised_cents"] == 1999 * 12
+    assert w["total_annualised_cents"] == 1999 * 12

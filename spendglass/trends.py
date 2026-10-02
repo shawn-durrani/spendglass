@@ -16,6 +16,8 @@ import sqlite3
 import statistics
 from datetime import date, timedelta
 
+from .store import to_cents
+
 # Effective category: user override > identity-informed model > bank.
 ECAT = ("COALESCE(ml.resolved_category, m.llm_category, m.cdr_category, "
         "t.category)")
@@ -268,8 +270,10 @@ def wins(con: sqlite3.Connection) -> dict:
         try:
             last = date.fromisoformat(rc["last_seen"])
             interval = float(rc["median_interval_days"] or 30)
-            typical = int(float(rc["typical_amount"]) * 100)
-        except (TypeError, ValueError):
+            # Stored signed, "-19.99" for a debit, and converted exactly:
+            # through a float, 19.99 becomes 1998 cents.
+            typical = abs(to_cents(rc["typical_amount"]) or 0)
+        except (TypeError, ValueError, OverflowError):
             continue
         if (today - last).days > 2 * interval and typical > 0:
             per_year = CADENCE_PER_YEAR.get(rc["cadence"], 12)
