@@ -29,6 +29,20 @@ PORT=8903
 
 [ -f "$TEMPLATE" ] || { echo "✗ template not found: $TEMPLATE" >&2; exit 1; }
 
+# Only a Spendglass server on the port gets stopped (#110). Anything else
+# is somebody else's program, so refuse, and do it before changing anything.
+port_holders() { lsof -tnP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true; }
+refuse_foreign() {
+  echo "✗ port $PORT is held by pid $1 ($(ps -o comm= -p "$1" 2>/dev/null)), which isn't Spendglass." >&2
+  echo "  The supervised server needs port $PORT. Stop that program" >&2
+  echo "  yourself, then run this again. $2" >&2
+  exit 1
+}
+for PID in $(port_holders); do
+  kill -0 "$PID" 2>/dev/null || continue
+  bash ops/is-spendglass.sh "$PID" || refuse_foreign "$PID" "Nothing was changed."
+done
+
 AGENT_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
 
 mkdir -p "$HOME/Library/LaunchAgents" "$REPO_DIR/data"
@@ -44,14 +58,18 @@ fi
 
 # Sole owner: drop any prior agent, then stop a hand-started instance still
 # holding the port, before bootstrapping (RunAtLoad starts the real one).
+# Each holder is checked again here, since the port could change hands.
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 sleep 1
-if PID="$(lsof -tnP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)"; then
+for PID in $(port_holders); do
+  kill -0 "$PID" 2>/dev/null || continue
+  bash ops/is-spendglass.sh "$PID" || refuse_foreign "$PID" \
+    "The old agent is already unloaded, so Spendglass stays down until then."
   echo "· stopping hand-started instance (pid $PID) so the agent owns the port"
   kill "$PID" 2>/dev/null || true
   for _ in $(seq 1 15); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
-  kill -9 "$PID" 2>/dev/null || true
-fi
+  kill -0 "$PID" 2>/dev/null && kill -9 "$PID" 2>/dev/null || true
+done
 launchctl bootstrap "$DOMAIN" "$DEST"
 launchctl enable "$DOMAIN/$LABEL"
 
