@@ -114,3 +114,30 @@ def test_mcp_server_exposes_only_readonly_tools():
     # Nothing here writes, transfers, pays, or connects — by name or nature.
     forbidden = ("write", "create", "delete", "update", "transfer", "pay", "send")
     assert not [n for n in names for f in forbidden if f in n]
+
+
+def _awkward_amounts(db):
+    """Debits at values a float multiply gets wrong, beside the fixture's."""
+    rows = []
+    for i, amount in enumerate(("-19.99", "-0.29", "-0.28")):
+        row = dict(TXNS[0])
+        row.update(id=f"txn-awkward-{i}", amount=amount,
+                   description=f"INITECH {i}", merchantName="Initech")
+        rows.append(row)
+    with Store(db) as s:
+        s.upsert_transactions(rows, "conn-bank-1")
+
+
+def test_search_amount_bounds_are_exact_to_the_cent(populated):
+    """Issue #93: int(-19.99 * 100) is -1998, so a lower bound of -19.99
+    left out the -19.99 row, and an upper bound of -0.29 let -0.28 in."""
+    _awkward_amounts(populated)
+    con = queries.open_readonly(populated)
+    r = queries.search_transactions(con, merchant="Initech", amount_min=-19.99)
+    assert r["matched"] == 3
+    r = queries.search_transactions(con, merchant="Initech", amount_max=-0.29)
+    assert sorted(t["amount"] for t in r["transactions"]) == ["-0.29", "-19.99"]
+    r = queries.search_transactions(con, merchant="Initech",
+                                    amount_min=-0.29, amount_max=-0.29)
+    assert [t["amount"] for t in r["transactions"]] == ["-0.29"]
+    con.close()

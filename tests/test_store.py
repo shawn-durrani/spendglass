@@ -6,7 +6,7 @@ import stat
 
 import pytest
 
-from spendglass.store import SCHEMA_VERSION, Store, to_cents
+from spendglass.store import SCHEMA_VERSION, Store, dollars_to_cents, to_cents
 from tests.conftest import ACCOUNTS, CONNECTIONS, TXNS
 
 
@@ -40,6 +40,27 @@ def test_to_cents_exact():
     assert to_cents("0.1") == 10          # the classic float trap, exactly
     assert to_cents(None) is None
     assert to_cents("not-a-number") is None
+
+
+@pytest.mark.parametrize("dollars, cents", [
+    (0.29, 29), (0.57, 57), (1.15, 115), (4.35, 435), (19.99, 1999),
+    (-0.29, -29), (-19.99, -1999), (0.1 + 0.2, 30), (7, 700), ("0.29", 29),
+    (1.005, 101), (-1.005, -101),
+])
+def test_dollars_to_cents_is_exact_where_a_float_is_not(dollars, cents):
+    """Issue #93: int(dollars * 100) cut 0.29 to 28 and 19.99 to 1998. The
+    figure is read from its shortest text form, and a fraction of a cent
+    rounds to the nearest cent, half away from zero."""
+    assert dollars_to_cents(dollars) == cents
+
+
+def test_dollars_to_cents_refuses_what_isnt_an_amount():
+    for bad in (float("nan"), float("inf"), float("-inf"), "ten"):
+        with pytest.raises(ValueError):
+            dollars_to_cents(bad)
+    # Past SQLite's integer range, a bound still binds and matches the same.
+    assert dollars_to_cents(1e300) == 2**63 - 1
+    assert dollars_to_cents(-1e300) == -(2**63)
 
 
 def test_transaction_upsert_idempotent(store):
