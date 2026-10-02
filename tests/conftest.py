@@ -69,14 +69,14 @@ TXNS = [
 
 HOLDINGS = [
     {"id": "hold-1", "accountId": "acc-2", "accountName": "Shares",
-     "symbol": "VAS", "name": "Vanguard AUS", "exchange": "ASX", "currency": "AUD",
+     "symbol": "GLX", "name": "Globex Index Fund", "exchange": "ASX", "currency": "AUD",
      "quantity": "10", "averagePrice": "88.00", "currentPrice": "95.50",
      "marketValue": "955.00", "unrealizedPnl": "75.00"},
 ]
 
 TRADES = [
     {"id": "snap_trade-1", "accountId": "acc-2", "accountName": "Shares",
-     "symbol": "VAS", "name": "Vanguard AUS", "type": "buy", "quantity": "10",
+     "symbol": "GLX", "name": "Globex Index Fund", "type": "buy", "quantity": "10",
      "price": "88.00", "currency": "AUD", "totalAmount": "880.00", "fees": "9.50",
      "tradeDate": "2026-03-10", "settlementDate": "2026-03-12",
      "description": None},
