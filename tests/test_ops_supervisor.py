@@ -2,7 +2,8 @@
 hand-started posture where a crash or reboot silently ends the service and
 the fleet's deploy watcher has nothing to restart through.
 
-Pure file checks - no launchctl, no network - so they run in CI unchanged.
+No network, and nothing is installed or loaded, so they run in CI unchanged.
+The process check may ask launchctl, read-only, which pid the agent has.
 """
 
 import os
@@ -106,3 +107,76 @@ def test_installer_stops_only_the_port_the_agent_binds():
     env = kids[kids.index(next(k for k in kids
                                if k.text == "EnvironmentVariables")) + 1]
     assert [k.text for k in env.iter("key")] == ["HOME", "PATH"]
+
+
+# ── issue #110: the installer stops only a Spendglass server ────────────────
+
+IS_SPENDGLASS = OPS / "is-spendglass.sh"
+
+
+def _is_spendglass(pid: int) -> bool:
+    return subprocess.run(["bash", str(IS_SPENDGLASS), str(pid)],
+                          capture_output=True).returncode == 0
+
+
+def _spawn(args, **kw):
+    return subprocess.Popen(args, stdout=subprocess.PIPE, text=True, **kw)
+
+
+def test_a_process_running_the_web_app_module_is_spendglass(tmp_path):
+    """A stand-in package answers to `python -m spendglass.ui`, the command
+    line start.sh execs, without serving anything. Its child stands for the
+    reloader's worker under SPENDGLASS_DEV."""
+    import sys
+
+    pkg = tmp_path / "spendglass"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ui.py").write_text(
+        "import subprocess, time\n"
+        "child = subprocess.Popen(['sleep', '30'])\n"
+        "print(child.pid, flush=True)\n"
+        "try:\n    time.sleep(30)\nfinally:\n    child.kill()\n")
+    fake = _spawn([sys.executable, "-m", "spendglass.ui"], cwd=tmp_path,
+                  env={**os.environ, "PYTHONPATH": ""})
+    child = None
+    try:
+        child = int(fake.stdout.readline())
+        assert _is_spendglass(fake.pid)
+        assert _is_spendglass(child)
+    finally:
+        if child:
+            os.kill(child, 9)
+        fake.kill()
+        fake.wait()
+
+
+def test_other_programs_are_not_spendglass():
+    """Anything else on the port is somebody else's, including a command
+    that only mentions the module among its arguments."""
+    import sys
+
+    others = [
+        _spawn(["sleep", "30"]),
+        _spawn([sys.executable, "-c", "import time; time.sleep(30)",
+                "-m", "spendglass.ui"]),
+    ]
+    try:
+        for proc in others:
+            assert not _is_spendglass(proc.pid), proc.args
+    finally:
+        for proc in others:
+            proc.kill()
+            proc.wait()
+    assert not _is_spendglass(2**22 + 12345)  # no such process
+
+
+def test_installer_checks_every_holder_before_changing_anything():
+    body = INSTALLER.read_text()
+    first_check = body.index("bash ops/is-spendglass.sh")
+    assert first_check < body.index('> "$DEST"')
+    bootout = body.index('launchctl bootout "$DOMAIN/$LABEL"')
+    assert first_check < bootout
+    after_bootout = body[bootout:]
+    assert after_bootout.index("is-spendglass.sh") < after_bootout.index('kill "$PID"')
+    assert "isn't Spendglass" in body

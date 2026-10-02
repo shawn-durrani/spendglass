@@ -16,7 +16,8 @@ ops/install-supervisor.sh
 The script hands Spendglass to launchd as an agent named
 `dev.spendglass.server`, which runs `start.sh`. It first stops any copy
 you started by hand on port 8903, so launchd owns the one real copy, and
-it's safe to run again. The agent always serves on 8903, whatever
+it's safe to run again. If another program holds 8903, the script
+changes nothing and tells you which one, so you can stop it yourself. The agent always serves on 8903, whatever
 `SPENDGLASS_UI_PORT` says, as [docs/CONFIG.md](CONFIG.md#the-two-environment-only-settings)
 explains. From then on the app starts when you log in,
 restarts within seconds if it exits, and comes back after a reboot once
