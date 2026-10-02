@@ -484,3 +484,62 @@ def test_store_dir_contents_become_owner_only(tmp_path):
     for p in (d / "store.db", d / "server.log", d / "backups" / "snap.db"):
         assert stat.S_IMODE(p.stat().st_mode) == 0o600
     assert stat.S_IMODE(outside.stat().st_mode) == 0o644
+
+
+# ── issue #97: a failed sign-in waits without stalling the server ──────────
+
+def test_a_failed_sign_in_never_sleeps_the_server(ui, monkeypatch):
+    """Auth used to call time.sleep() on a failure, inside an async handler,
+    so the whole server stopped for up to 3s. It only counts now."""
+    import time as time_mod
+
+    client, auth = ui
+    _enroll(client)
+
+    def no_sleeping(_seconds):
+        raise AssertionError("a blocking sleep on the sign-in path")
+
+    monkeypatch.setattr(time_mod, "sleep", no_sleeping)
+    for n in range(1, 13):
+        assert auth.check_password("wrong") is False
+        assert auth.failure_delay() == pytest.approx(min(0.3 * n, 3.0))
+    assert auth.check_password(PASSWORD) is True
+    assert auth.failure_delay() == 0
+
+
+def test_other_requests_answer_while_a_failed_sign_in_waits(ui):
+    """While a wrong password's answer is held back, the server keeps
+    serving: another request finishes long before it."""
+    import asyncio
+    import time as time_mod
+
+    import httpx
+
+    client, auth = ui
+    _enroll(client)
+    auth._failed_logins = 2  # so this failure, the third, waits 0.9s
+    finished: dict[str, float] = {}
+
+    async def run():
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(transport=transport,
+                                     base_url="http://127.0.0.1:8903") as c:
+            async def login():
+                r = await c.post("/api/login", json={"password": "wrong"})
+                finished["login"] = time_mod.monotonic()
+                return r
+
+            async def other():
+                await asyncio.sleep(0.1)  # the login is already waiting
+                r = await c.get("/api/session")
+                finished["other"] = time_mod.monotonic()
+                return r
+
+            start = time_mod.monotonic()
+            failed, ok = await asyncio.gather(login(), other())
+            return start, failed, ok
+
+    start, failed, ok = asyncio.run(run())
+    assert failed.status_code == 403 and ok.status_code == 200
+    assert finished["login"] - start >= 0.85
+    assert finished["other"] - start < 0.6, finished

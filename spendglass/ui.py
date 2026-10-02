@@ -36,6 +36,7 @@ Security posture:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -46,6 +47,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 import webauthn as webauthn_lib
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
@@ -269,7 +271,12 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
     @app.post("/api/login")
     async def login(request: Request, response: Response) -> dict:
         body = await request.json()
-        if not auth.check_password(body.get("password", "")):
+        # The hash takes a moment and the wait after a failure takes up to
+        # 3s. Neither runs on the event loop, which serves every request,
+        # so a wrong password slows only its own answer (#97).
+        if not await run_in_threadpool(auth.check_password,
+                                       body.get("password", "")):
+            await asyncio.sleep(auth.failure_delay())
             raise HTTPException(status_code=403, detail="wrong password")
         response.set_cookie(COOKIE, auth.create_session(), httponly=True,
                             samesite="strict", max_age=24 * 3600)

@@ -81,17 +81,20 @@ class Auth:
         return True
 
     def check_password(self, password: str) -> bool:
+        """Never waits itself. A failure counts toward failure_delay(), and
+        the caller holds its answer that long without blocking (#97)."""
         if self.first_run:
             return False
         stored = json.loads(self.auth_file.read_text())
         candidate = _hash(password, bytes.fromhex(stored["salt"]))
         ok = hmac.compare_digest(candidate, stored["hash"])
-        if not ok:
-            self._failed_logins += 1
-            time.sleep(min(0.3 * self._failed_logins, 3.0))  # slow brute force
-        else:
-            self._failed_logins = 0
+        self._failed_logins = 0 if ok else self._failed_logins + 1
         return ok
+
+    def failure_delay(self) -> float:
+        """Seconds to hold a failed sign-in's answer, to slow guessing:
+        0.3s for each failure in a row, up to 3s."""
+        return min(0.3 * self._failed_logins, 3.0)
 
     # ── sessions (stored as digests, revocable, expiring) ───────────────────
 
