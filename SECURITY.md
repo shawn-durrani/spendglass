@@ -24,7 +24,8 @@ short list of its own addresses. That stops
 where a web page you visit points its own name at your computer to
 reach the app. A `POST` request that the browser marks as coming from another
 site is refused, and the session cookie is `HttpOnly` with `SameSite`
-set to `Strict`.
+set to `Strict`. The app serves no map of its own API, so someone who
+hasn't signed in can't list its routes.
 
 ### The lock screen
 

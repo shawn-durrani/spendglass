@@ -14,6 +14,7 @@ Security posture:
   state, plus this app's name and loopback address for the owner's other
   apps to link to) and /api/busy (whether a restart would cut work short,
   as fixed labels). Each discloses that something is so, never content.
+  No API schema is served at all: /openapi.json, /docs and /redoc are off.
 - This surface writes. Do not describe it as read-only. The write paths,
   none of which edit what the bank sent:
   * labels: merchant-identity decisions (/api/lookups/decide) into the
@@ -176,7 +177,10 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
     `sibling_apps` feeds the header's row of links to the owner's other
     apps; build_app passes the configured ones, tests pass their own or
     none, so a test never asks a live service."""
-    app = FastAPI(title="spendglass", docs_url=None, redoc_url=None)
+    # No API map: nothing uses one, and /openapi.json answered without a
+    # session, listing every route to anyone who could reach the app (#98).
+    app = FastAPI(title="spendglass", docs_url=None, redoc_url=None,
+                  openapi_url=None)
     app.state.sibling_probe = app_links.SiblingProbe(sibling_apps or {})
 
     # Derived-table schemas the queries join against; safe and idempotent.

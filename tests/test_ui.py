@@ -38,6 +38,19 @@ def test_data_requires_session(ui):
         assert client.get(path).status_code == 401
 
 
+def test_no_api_map_is_served(ui):
+    """Issue #98: /openapi.json answered without a session and listed every
+    route. Nothing uses it, so it's off, signed in or not, like the
+    interactive pages that sit on top of it."""
+    client, _ = ui
+    paths = ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect")
+    for path in paths:
+        assert client.get(path).status_code == 404, path
+    _enroll(client)
+    for path in paths:
+        assert client.get(path).status_code == 404, path
+
+
 def test_first_run_setup_requires_recovery_secret(ui):
     client, _ = ui
     r = client.post("/api/setup", json={"recovery_secret": "wrong", "password": PASSWORD})
