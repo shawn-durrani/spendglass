@@ -18,13 +18,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, timedelta
 
-from .trends import CADENCE_PER_YEAR
+from .trends import CADENCE_PER_YEAR, has_stopped
 
 RENEW_SOON_DAYS = 14
-# A charge is "stopped" when we're this far past its expected next hit:
-# grace of one full interval plus a week for bank posting jitter.
-def _grace_days(median_interval: float) -> float:
-    return max(median_interval * 2, median_interval + 7)
 
 
 def _cents(amount: str | float | None) -> int:
@@ -54,8 +50,7 @@ def overview(con: sqlite3.Connection, today: date | None = None) -> dict:
             last = date.fromisoformat(r["last_seen"])
         except (TypeError, ValueError):
             continue
-        is_active = (today - last).days <= _grace_days(
-            r["median_interval_days"] or 30)
+        is_active = not has_stopped(last, r["median_interval_days"], today)
         item = {
             "merchant_key": r["merchant_key"],
             "name": r["resolved_name"] or r["display_name"] or r["merchant_key"],

@@ -48,6 +48,17 @@ CADENCE_PER_YEAR = {"weekly": 52, "fortnightly": 26, "monthly": 12,
                     "quarterly": 4, "yearly": 1}
 
 
+def has_stopped(last_seen: date, median_interval_days: float | None,
+                today: date) -> bool:
+    """Has a recurring charge stopped? The wins card and the subscriptions
+    list both ask here, so they never disagree (issue #108). A charge has
+    stopped once it's overdue by a full interval plus a week of grace for
+    bank posting jitter: more than max(2 x interval, interval + 7) days
+    since it was last seen. A charge with no interval counts as monthly."""
+    interval = float(median_interval_days or 30)
+    return (today - last_seen).days > max(interval * 2, interval + 7)
+
+
 def _month(d: date) -> str:
     return d.strftime("%Y-%m")
 
@@ -263,19 +274,19 @@ def anomalies(con: sqlite3.Connection, lookback: int = 12,
 
 # ── 7. savings wins: reward the behaviour the other devices prompt ──────────
 
-def wins(con: sqlite3.Connection) -> dict:
-    today = date.today()
+def wins(con: sqlite3.Connection, today: date | None = None) -> dict:
+    today = today or date.today()
     out = []
     for rc in con.execute("SELECT * FROM recurring_charges"):
         try:
-            last = date.fromisoformat(rc["last_seen"])
-            interval = float(rc["median_interval_days"] or 30)
+            gone = has_stopped(date.fromisoformat(rc["last_seen"]),
+                           rc["median_interval_days"], today)
             # Stored signed, "-19.99" for a debit, and converted exactly:
             # through a float, 19.99 becomes 1998 cents.
             typical = abs(to_cents(rc["typical_amount"]) or 0)
         except (TypeError, ValueError, OverflowError):
             continue
-        if (today - last).days > 2 * interval and typical > 0:
+        if gone and typical > 0:
             per_year = CADENCE_PER_YEAR.get(rc["cadence"], 12)
             out.append({"kind": "cancelled_recurring",
                         "merchant": rc["display_name"],
