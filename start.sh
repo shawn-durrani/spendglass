@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Launcher: creates .venv, installs deps when they change, refuses to start a
-# second instance on the port it is about to use, prints the recovery secret,
-# serves the UI.
+# Launcher: rolls the supervisor's log over, creates .venv, installs deps
+# when they change, refuses to start a second instance on the port it is
+# about to use, serves the UI.
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# The launchd agent writes here and never trims it (#95). Past 10MB the
+# log becomes data/service.log.1 and a fresh one starts.
+bash ops/rotate-log.sh data/service.log
 
 # Same variable the server reads, so the conflict check, the message and
 # the bind can never disagree.

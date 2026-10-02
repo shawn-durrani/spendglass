@@ -19,7 +19,9 @@ you started by hand on the port, so launchd owns the one real copy, and
 it's safe to run again. From then on the app starts when you log in,
 restarts within seconds if it exits, and comes back after a reboot once
 you log in. If it keeps crashing, launchd waits ten seconds between
-tries. Its output goes to `data/service.log`.
+tries. Its output goes to `data/service.log`. Once that log passes
+10MB, the next start moves it to `data/service.log.1` and begins a
+fresh one, so the two together stay near 20MB.
 
 ## Everyday commands
 

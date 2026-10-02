@@ -88,7 +88,7 @@ If you skip that step, the server's own scheduled sync picks the key up
 within 15 minutes.
 
 On your first visit you set a password, using the recovery secret the
-terminal printed. [docs/CONFIG.md](docs/CONFIG.md) explains the three
+terminal printed, or the one you set yourself. [docs/CONFIG.md](docs/CONFIG.md) explains the three
 credentials and every other setting.
 
 To keep it running unattended, install the launchd supervisor once

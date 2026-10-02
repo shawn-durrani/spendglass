@@ -132,13 +132,22 @@ def startup_banner(*, first_run: bool, secret_configured: bool, port,
                    secret: str) -> list[str]:
     """The startup banner, secret-safe after enrolment (issue #2).
 
-    The full recovery secret appears ONLY on a true first run - the one
-    moment the user genuinely needs to see it, before anything is enrolled.
-    After that it must never hit stdout again: redirected logs accumulate it
-    in plaintext, and a pasted server log (bug report, screen share) would
+    The full recovery secret appears ONLY on a true first run, and only when
+    the app made it up - the one moment the user genuinely needs to see it,
+    and no other way to learn it. A secret the owner set in
+    SPENDGLASS_RECOVERY_SECRET is never printed: they know it already, and
+    under the supervisor stdout is data/service.log (issue #95). After the
+    first run nothing is printed: redirected logs accumulate it in
+    plaintext, and a pasted server log (bug report, screen share) would
     leak it. Later starts say only which kind of secret is in force and how
     to reset a forgotten password."""
     bar = "─" * 64
+    if first_run and secret_configured:
+        return [bar,
+                f"First run: open http://127.0.0.1:{port} and set a password.",
+                "Use the recovery secret you set in SPENDGLASS_RECOVERY_SECRET. "
+                "It isn't printed here.",
+                bar]
     if first_run:
         return [bar,
                 f"First run: open http://127.0.0.1:{port} and set a password.",
@@ -251,7 +260,8 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             raise HTTPException(status_code=400, detail=str(e))
         if not ok:
             raise HTTPException(status_code=403, detail="recovery secret does not match "
-                                "the one printed in the server terminal")
+                                "the one printed at startup or set in "
+                                "SPENDGLASS_RECOVERY_SECRET")
         response.set_cookie(COOKIE, auth.create_session(), httponly=True,
                             samesite="strict", max_age=24 * 3600)
         return {"ok": True}
@@ -1505,8 +1515,9 @@ tr:hover td{background:var(--accent-soft)}
     <p class="sub" id="gate-sub"></p>
     <div id="setup-form" class="hidden">
       <p style="font-size:13px">This sets the password you'll use from now on. Prove it's
-      you by pasting the <b>recovery secret</b> printed in the server terminal.</p>
-      <label>Recovery secret (from the terminal)</label>
+      you by pasting the <b>recovery secret</b>: the one the server printed when it
+      started, or the one you set in <code>SPENDGLASS_RECOVERY_SECRET</code>.</p>
+      <label>Recovery secret</label>
       <input id="secret" type="password" autocomplete="off">
       <label>Choose a password (min 8 characters)</label>
       <input id="new-password" type="password" autocomplete="new-password">
@@ -1713,7 +1724,7 @@ function showPassword(){
 function showReset(){
   $("setup-form").classList.remove("hidden");$("login-form").classList.add("hidden");
   $("pk-form").classList.add("hidden");
-  $("gate-sub").textContent="Reset — paste the recovery secret from the server terminal.";
+  $("gate-sub").textContent="Reset — paste the SPENDGLASS_RECOVERY_SECRET from .env. None there? Add one and restart first.";
 }
 
 /* ── passkeys (#22): base64url plumbing + the two ceremonies ─────────────── */

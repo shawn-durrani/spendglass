@@ -1,9 +1,9 @@
 """UI auth — recovery-secret bootstrap, durable password, hashed sessions.
 
-- A RECOVERY SECRET is printed to the terminal at startup (stable if
-  SPENDGLASS_RECOVERY_SECRET is set in .env, random per start otherwise). It
-  gates first-run password enrollment and password reset — never everyday
-  login.
+- A RECOVERY SECRET gates first-run password enrollment and password
+  reset — never everyday login. It's stable if SPENDGLASS_RECOVERY_SECRET
+  is set in .env, and random per start otherwise. Only a random one is
+  printed, and only on a first run (ui.startup_banner).
 - The everyday login is a durable PASSWORD (scrypt-hashed in
   data/ui_auth.json, which is gitignored via data/). It survives restarts.
 - A successful login sets an opaque, expiring, server-revocable session
