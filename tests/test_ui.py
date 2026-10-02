@@ -299,6 +299,21 @@ def test_amount_filters_are_exact_to_the_cent(ui):
         assert r.status_code == 400, (bad, r.status_code)
 
 
+def test_health_reports_the_last_good_sync_while_one_runs(ui):
+    """Issue #94: the banner read the newest run's finish time, which is
+    empty while a sync runs, and a failed run's time as the last sync."""
+    client, auth = ui
+    _enroll(client)
+    with Store(auth.auth_file.parent / "store.db") as s:
+        s.finish_sync_run(s.start_sync_run(), "ok", {})
+        s.start_sync_run()
+    h = client.get("/api/health").json()
+    assert h["last_success_at"] and h["last_sync"]["finished_at"] is None
+    assert h["stale"] is False
+    page = client.get("/").text
+    assert "h.last_success_at" in page and "h.last_sync.finished_at" not in page
+
+
 def test_query_endpoints_reject_mutating_methods(ui):
     """Query endpoints take GET only: mutating methods are refused with 405."""
     client, _ = ui

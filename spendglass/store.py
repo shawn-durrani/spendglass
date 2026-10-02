@@ -434,6 +434,12 @@ class Store:
         last_run = self.con.execute(
             "SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
+        # The newest run can be one in progress or one that failed, so the
+        # data's own age comes from the newest run that worked (issue #94).
+        last_ok = self.con.execute(
+            "SELECT finished_at FROM sync_runs WHERE status='ok' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
         connections = []
         for c in self.con.execute("SELECT * FROM connections").fetchall():
             warnings = []
@@ -471,6 +477,8 @@ class Store:
             "db": str(self.db_path),
             "counts": counts,
             "last_sync": dict(last_run) if last_run else None,
+            "last_success_at": last_ok["finished_at"] if last_ok else None,
             "connections": connections,
-            "stale": last_run is None or last_run["status"] != "ok",
+            # A sync in progress doesn't make the last good one stale.
+            "stale": last_ok is None or last_run["status"] == "error",
         }
