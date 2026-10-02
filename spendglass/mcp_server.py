@@ -167,9 +167,11 @@ def price_creep() -> dict:
 @mcp.tool()
 def merchant_pareto(days: int = 90) -> dict:
     """Focus list: the few merchants that make up most VARIABLE (non-
-    recurring) spend over the window, with each merchant's share, cumulative
-    share, and recent monthly totals. Use it to ration attention — cutting
-    one top-five merchant beats trimming twenty tail categories."""
+    recurring, non-interest) spend over the window, with each merchant's
+    share, cumulative share, and recent monthly totals. Loan/credit
+    interest is excluded — it's a committed cost, see fixed_vs_variable.
+    Use it to ration attention — cutting one top-five merchant beats
+    trimming twenty tail categories."""
     with queries.open_readonly(_cfg.db_path) as con:
         return _with_freshness(_trends.pareto(con, days=days))
 
@@ -207,8 +209,10 @@ def savings_wins() -> dict:
 @mcp.tool()
 def fixed_vs_variable() -> dict:
     """Monthly recurring (fixed) vs variable spend across the stored history.
-    A rising fixed floor is the earliest structural warning — it determines
-    financial slack regardless of month-to-month discipline."""
+    Loan/credit interest counts as fixed, alongside detected subscriptions —
+    it's a committed cost of debt already taken on. A rising fixed floor is
+    the earliest structural warning — it determines financial slack
+    regardless of month-to-month discipline."""
     with queries.open_readonly(_cfg.db_path) as con:
         return _with_freshness(_trends.fixed_floor(con))
 

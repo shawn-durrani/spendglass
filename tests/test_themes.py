@@ -9,6 +9,7 @@ import pytest
 from spendglass import themes
 from spendglass.enrich import ensure_schema as enrich_schema
 from spendglass.lookup import ensure_schema as lookup_schema
+from spendglass.overrides import ensure_schema as overrides_schema
 from spendglass.store import Store
 from spendglass.transfers import ensure_schema as transfers_schema
 
@@ -19,6 +20,7 @@ def store(tmp_path):
         enrich_schema(s)
         lookup_schema(s)
         transfers_schema(s)
+        overrides_schema(s)
         themes.ensure_schema(s)
         themes.create_theme(s, "Pets", template="Pets")
         themes.create_theme(s, "Renovation")           # blank, user-built

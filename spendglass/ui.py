@@ -60,6 +60,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
 from . import app_links
 from . import busy as busy_mod
 from . import capabilities
+from . import overrides as overrides_mod
 from . import passkeys as passkeys_mod
 from . import themes as themes_mod
 from .auth import Auth
@@ -177,6 +178,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             ensure_schema(_s)
             _transfers_schema(_s)
             themes_mod.ensure_schema(_s)
+            overrides_mod.ensure_schema(_s)
     except Exception:
         pass  # a store that predates sync entirely; queries fall back
 
@@ -886,9 +888,10 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         return {"ok": True, "started": miner}
 
     # ── visualisation data (GET) and theme editing (writes theme tables) ────
-    # Effective category: user override > identity-informed model > bank.
-    _ECAT = ("COALESCE(ml.resolved_category, m.llm_category, m.cdr_category, "
-             "t.category)")
+    # Effective category: user override > deterministic rule (issue #90) >
+    # identity-informed model > bank. Mirrors trends.ECAT.
+    _ECAT = (f"COALESCE(ml.resolved_category, {overrides_mod.OCAT}, "
+             "m.llm_category, m.cdr_category, t.category)")
     _VIZ_JOIN = """FROM transactions t
         LEFT JOIN merchants m ON m.key = t.merchant_key
         LEFT JOIN merchant_lookups ml ON ml.merchant_key = t.merchant_key
