@@ -19,14 +19,13 @@ TEMPLATE="ops/${LABEL}.plist.template"
 DEST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 DOMAIN="gui/$(id -u)"
 
-# Same port-resolution rule as start.sh: shell env first, then .env (where a
-# supervised install actually sets it), then the default — so the
-# kill-the-hand-started-instance step targets the port really bound.
-_env_port() {
-  [ -f .env ] && sed -n "s/^${1}=//p" .env | tail -1 || true
-}
-PORT="${SPENDGLASS_UI_PORT:-$(_env_port SPENDGLASS_UI_PORT)}"
-PORT="${PORT:-8903}"
+# The port the agent's server binds, so the step that stops a hand-started
+# copy stops the right process (#96). The server reads SPENDGLASS_UI_PORT
+# from its environment alone, never from .env, and the agent passes it only
+# HOME and PATH, so a supervised server always binds the default. A port
+# set in .env or in this shell never reaches it. tests/test_ops_supervisor.py
+# keeps this in step with ui.py.
+PORT=8903
 
 [ -f "$TEMPLATE" ] || { echo "✗ template not found: $TEMPLATE" >&2; exit 1; }
 

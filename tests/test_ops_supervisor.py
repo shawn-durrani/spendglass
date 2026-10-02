@@ -6,6 +6,7 @@ Pure file checks - no launchctl, no network - so they run in CI unchanged.
 """
 
 import os
+import re
 import stat
 import subprocess
 import xml.etree.ElementTree as ET
@@ -83,3 +84,25 @@ def test_start_rotates_the_log_the_agent_writes():
     assert "bash ops/rotate-log.sh data/service.log" in start
     assert start.index("rotate-log.sh") < start.index("exec ")
     assert "{{REPO_DIR}}/data/service.log" in TEMPLATE.read_text()
+
+
+def test_installer_stops_only_the_port_the_agent_binds():
+    """Issue #96: the installer read SPENDGLASS_UI_PORT from .env, which the
+    server never reads, so it could stop a process on a port Spendglass
+    doesn't use. The agent passes the server only HOME and PATH, so the
+    supervised server binds ui.py's default, and so must the installer."""
+    ui_src = (OPS.parent / "spendglass" / "ui.py").read_text()
+    default = re.search(
+        r'os\.environ\.get\("SPENDGLASS_UI_PORT", "(\d+)"\)', ui_src).group(1)
+
+    installer = INSTALLER.read_text()
+    assert re.findall(r"^PORT=(\S+)$", installer, re.M) == [default]
+    assert ".env" not in "".join(
+        ln for ln in installer.splitlines()
+        if "PORT" in ln and not ln.lstrip().startswith("#"))
+
+    root = ET.fromstring(TEMPLATE.read_text())
+    kids = list(root.find("dict"))
+    env = kids[kids.index(next(k for k in kids
+                               if k.text == "EnvironmentVariables")) + 1]
+    assert [k.text for k in env.iter("key")] == ["HOME", "PATH"]
