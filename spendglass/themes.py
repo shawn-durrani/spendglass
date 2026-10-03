@@ -32,9 +32,12 @@ CREATE TABLE IF NOT EXISTS theme_rules (
 );
 """
 
-# Starting points only — subcategory rules, no merchants (a merchant rule
-# is always somebody's specific life). Values are editable the moment a
-# template lands; a rule that matches nothing yet simply contributes $0.
+# Starting points only — subcategory rules almost everywhere, since a
+# merchant rule is usually somebody's specific life. Sport & Fitness is the
+# exception: generic domain words for bike businesses, because banks file
+# them under categories no subcategory rule ever reaches (#113). Values are
+# editable the moment a template lands; a rule that matches nothing yet
+# simply contributes $0.
 TEMPLATES: dict[str, list[tuple[str, str]]] = {
     "Renovation": [
         ("subcategory", "Building & Carpentry"),
@@ -81,8 +84,12 @@ TEMPLATES: dict[str, list[tuple[str, str]]] = {
     #
     # The merchant patterns are deliberately narrow words from the cycling
     # domain, not a single generic fragment: "cycle" alone would also catch
-    # "recycle" and "motorcycle", so it's left out. "bike"/"bicycle" are the
-    # two that carry the meaning on their own.
+    # "recycle" and "motorcycle", so it's left out — and a bare "%bike%"
+    # would catch "motorbike" the same way, so "bike" is anchored to a word
+    # start instead ("bike%" for keys that open with it, "% bike%" for the
+    # word elsewhere; merchant_key is casefolded space-separated text). The
+    # cost is a fused spelling like "ebike", which a user adds back as their
+    # own rule if it's theirs.
     #
     # Personal training has no rule here: the owner's trainer isn't a known
     # merchant, and this theme never guesses one (issue #113). Once a lookup
@@ -96,7 +103,8 @@ TEMPLATES: dict[str, list[tuple[str, str]]] = {
         ("subcategory", "Gym & Fitness"),
         ("subcategory", "Sport & Recreation"),
         ("subcategory", "Personal Training"),
-        ("merchant", "%bike%"),
+        ("merchant", "bike%"),
+        ("merchant", "% bike%"),
         ("merchant", "%bicycle%"),
         ("merchant", "%bmx%"),
         ("merchant", "%cyclery%"),

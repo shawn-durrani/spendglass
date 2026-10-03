@@ -8,6 +8,7 @@ import pytest
 
 from spendglass import themes
 from spendglass.enrich import ensure_schema as enrich_schema
+from spendglass.enrich import merchant_key as _mkey
 from spendglass.lookup import ensure_schema as lookup_schema
 from spendglass.store import Store
 from spendglass.transfers import ensure_schema as transfers_schema
@@ -117,9 +118,6 @@ def test_match_clause_filters_transactions(store):
 # proving, using the house synthetic roster (Example Bank/Builders-style
 # fictional merchants), never anything from a real statement.
 
-from spendglass.enrich import merchant_key as _mkey  # noqa: E402
-
-
 @pytest.fixture()
 def sf_store(tmp_path):
     with Store(tmp_path / "sport.db") as s:
@@ -147,7 +145,8 @@ def _insert(store, id_, *, merchant_name, description=None, cents, direction="de
            category, status, raw, connection_id, first_seen_at, synced_at)
            VALUES (?,?,?,?,?,?,?,?,?,?,'posted','{}','c1',?,?)""",
         (id_, "a1", f"{mo}-10", description or merchant_name, merchant_name, key,
-         str(cents / 100), abs(cents) if direction == "credit" else -abs(cents),
+         f"{cents // 100}.{cents % 100:02d}",
+         abs(cents) if direction == "credit" else -abs(cents),
          direction, category, f"{mo}-10", f"{mo}-10"))
     store.con.commit()
 
@@ -186,9 +185,11 @@ def test_matches_bike_merchant_with_no_merchant_name(sf_store):
 
 def test_avoids_broad_false_positives(sf_store):
     """'cycle' alone would also catch a recycling centre and a motorcycle
-    shop, which is why the template uses 'bike'/'bicycle' instead."""
+    shop, and a bare '%bike%' would catch a motorbike shop — which is why
+    the template anchors 'bike' to a word start and spells the rest out."""
     _insert(sf_store, "t1", merchant_name="Example Recycling Centre", cents=4000)
     _insert(sf_store, "t2", merchant_name="Example Motorcycle Service", cents=9000)
+    _insert(sf_store, "t3", merchant_name="Example Motorbike Service", cents=7000)
     by = {t["theme"]: t for t in themes.summary(sf_store.con, 3)["themes"]}
     assert by["Sport & Fitness"]["total_cents"] == 0
     assert by["Sport & Fitness"]["txn_count"] == 0

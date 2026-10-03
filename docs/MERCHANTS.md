@@ -85,7 +85,10 @@ run or a doctor's visit never lands in a sport total. It starts with
 the gym and sport/recreation subcategories plus a handful of merchant
 rules for bike shops and bike parks, which usually get filed as
 Shopping or Transportation and would otherwise never reach a
-sport-flavoured subcategory at all. It has no rule for a personal
+sport-flavoured subcategory at all. The two themes share the gym and
+sport subcategories, so a gym debit shows up in both totals if you
+keep both. Themes are overlapping lenses, not a partition, and
+nothing is counted twice inside any one theme. It has no rule for a personal
 trainer, because the app never guesses which business that is. Add
 one yourself from the theme editor once a lookup names the merchant,
 or straight away if you already know its name on your statement.
