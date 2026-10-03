@@ -43,7 +43,12 @@ BUILTIN_RULES: list[tuple[str, str, str, str, str]] = [
      "Credit-card cash-advance interest lands as BANK_FEES on the raw feed."),
     ("merchant", "%liquorland%", "ALCOHOL", "Bottle Shop",
      "Bottle shop lands as Eating Out on the raw feed."),
-    ("merchant", "%bws%", "ALCOHOL", "Bottle Shop",
+    # Word-anchored, not "%bws%": three letters inside a longer word must
+    # not reclassify a merchant to ALCOHOL (same device as the Sport &
+    # Fitness theme's "bike" patterns, #114).
+    ("merchant", "bws%", "ALCOHOL", "Bottle Shop",
+     "Bottle shop lands as Eating Out on the raw feed."),
+    ("merchant", "% bws%", "ALCOHOL", "Bottle Shop",
      "Bottle shop lands as Eating Out on the raw feed."),
     ("merchant", "%dan murphy%", "ALCOHOL", "Bottle Shop",
      "Bottle shop lands as Eating Out on the raw feed."),
