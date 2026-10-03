@@ -32,9 +32,12 @@ CREATE TABLE IF NOT EXISTS theme_rules (
 );
 """
 
-# Starting points only — subcategory rules, no merchants (a merchant rule
-# is always somebody's specific life). Values are editable the moment a
-# template lands; a rule that matches nothing yet simply contributes $0.
+# Starting points only — subcategory rules almost everywhere, since a
+# merchant rule is usually somebody's specific life. Sport & Fitness is the
+# exception: generic domain words for bike businesses, because banks file
+# them under categories no subcategory rule ever reaches (#113). Values are
+# editable the moment a template lands; a rule that matches nothing yet
+# simply contributes $0.
 TEMPLATES: dict[str, list[tuple[str, str]]] = {
     "Renovation": [
         ("subcategory", "Building & Carpentry"),
@@ -70,6 +73,42 @@ TEMPLATES: dict[str, list[tuple[str, str]]] = {
         ("subcategory", "Sport & Recreation"),
         ("subcategory", "Health Services"),
         ("subcategory", "Pharmacy"),
+    ],
+    # Issue #113: Health & Fitness mixes sport with pharmacy and general
+    # medical, and bike shops/parks usually never reach a Gym & Fitness or
+    # Sport & Recreation subcategory in the first place — a bank or the
+    # classifier files them as Shopping or Transportation instead, so no
+    # subcategory rule ever sees them. This theme stays sport/fitness-only
+    # (no Health Services, no Pharmacy) and adds merchant rules that catch
+    # bike shops and bike parks by name regardless of their category.
+    #
+    # The merchant patterns are deliberately narrow words from the cycling
+    # domain, not a single generic fragment: "cycle" alone would also catch
+    # "recycle" and "motorcycle", so it's left out — and a bare "%bike%"
+    # would catch "motorbike" the same way, so "bike" is anchored to a word
+    # start instead ("bike%" for keys that open with it, "% bike%" for the
+    # word elsewhere; merchant_key is casefolded space-separated text). The
+    # cost is a fused spelling like "ebike", which a user adds back as their
+    # own rule if it's theirs.
+    #
+    # Personal training has no rule here: the owner's trainer isn't a known
+    # merchant, and this theme never guesses one (issue #113). Once a lookup
+    # resolves a trainer's merchant to the "Personal Training" subcategory —
+    # proposed by the lookup agent, or set by hand from the transaction table
+    # — it joins this theme on its own via the subcategory rule below. To
+    # pull it in sooner, or to catch a bike business these patterns miss,
+    # add a merchant rule for it from the admin panel's theme editor (or
+    # themes.add_rule), e.g. kind='merchant', value='%the trainer's key%'.
+    "Sport & Fitness": [
+        ("subcategory", "Gym & Fitness"),
+        ("subcategory", "Sport & Recreation"),
+        ("subcategory", "Personal Training"),
+        ("merchant", "bike%"),
+        ("merchant", "% bike%"),
+        ("merchant", "%bicycle%"),
+        ("merchant", "%bmx%"),
+        ("merchant", "%cyclery%"),
+        ("merchant", "%velodrome%"),
     ],
 }
 

@@ -49,8 +49,66 @@ def test_readonly_connection_refuses_writes(populated):
 def test_freshness_screams_when_never_synced(populated):
     f = queries.freshness(populated)
     assert f["stale"] is True
-    assert any("no successful sync" in w for w in f["staleness_warnings"])
+    assert any("no sync has run yet" in w for w in f["staleness_warnings"])
     assert f["as_of"] is None
+
+
+def _runs(db, *statuses):
+    """Sync runs in order, oldest first. "running" leaves the run open."""
+    with Store(db) as s:
+        for status in statuses:
+            run = s.start_sync_run()
+            if status != "running":
+                s.finish_sync_run(run, status, {},
+                                  error="synthetic" if status == "error" else None)
+        return s.con.execute(
+            "SELECT finished_at FROM sync_runs WHERE status='ok' "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def _sync_warnings(f):
+    # A bare store has no connections, so every warning is about sync.
+    return f["staleness_warnings"]
+
+
+def test_freshness_while_a_sync_runs_after_a_good_one(tmp_path):
+    """Issue #94: the newest run in progress read as "no successful sync
+    has ever completed". The data is as fresh as the last good sync, and a
+    run in progress isn't a warning by itself."""
+    db = tmp_path / "store.db"
+    ok = _runs(db, "ok", "running")
+    f = queries.freshness(db)
+    assert f["as_of"] == ok["finished_at"]
+    assert _sync_warnings(f) == [] and f["stale"] is False
+    with Store(db) as s:
+        h = s.health()
+    assert h["last_success_at"] == ok["finished_at"]
+    assert h["last_sync"]["status"] == "running" and h["stale"] is False
+
+
+def test_freshness_after_a_failure_names_the_last_good_sync(tmp_path):
+    db = tmp_path / "store.db"
+    ok = _runs(db, "ok", "error")
+    f = queries.freshness(db)
+    assert f["as_of"] == ok["finished_at"] and f["stale"] is True
+    (w,) = _sync_warnings(f)
+    assert w.startswith("the latest sync failed") and ok["finished_at"] in w
+    assert "ever" not in w
+    with Store(db) as s:
+        assert s.health()["stale"] is True
+
+
+def test_freshness_before_any_sync_has_worked(tmp_path):
+    first = tmp_path / "first.db"
+    _runs(first, "running")
+    (w,) = _sync_warnings(queries.freshness(first))
+    assert w.startswith("the first sync") and "hasn't finished" in w
+
+    failed = tmp_path / "failed.db"
+    _runs(failed, "error")
+    f = queries.freshness(failed)
+    (w,) = _sync_warnings(f)
+    assert w.startswith("no sync has worked yet") and f["as_of"] is None
 
 
 def test_freshness_carries_connection_warnings(populated, client):
@@ -253,3 +311,30 @@ def test_mcp_server_exposes_only_readonly_tools():
     # Nothing here writes, transfers, pays, or connects — by name or nature.
     forbidden = ("write", "create", "delete", "update", "transfer", "pay", "send")
     assert not [n for n in names for f in forbidden if f in n]
+
+
+def _awkward_amounts(db):
+    """Debits at values a float multiply gets wrong, beside the fixture's."""
+    rows = []
+    for i, amount in enumerate(("-19.99", "-0.29", "-0.28")):
+        row = dict(TXNS[0])
+        row.update(id=f"txn-awkward-{i}", amount=amount,
+                   description=f"INITECH {i}", merchantName="Initech")
+        rows.append(row)
+    with Store(db) as s:
+        s.upsert_transactions(rows, "conn-bank-1")
+
+
+def test_search_amount_bounds_are_exact_to_the_cent(populated):
+    """Issue #93: int(-19.99 * 100) is -1998, so a lower bound of -19.99
+    left out the -19.99 row, and an upper bound of -0.29 let -0.28 in."""
+    _awkward_amounts(populated)
+    con = queries.open_readonly(populated)
+    r = queries.search_transactions(con, merchant="Initech", amount_min=-19.99)
+    assert r["matched"] == 3
+    r = queries.search_transactions(con, merchant="Initech", amount_max=-0.29)
+    assert sorted(t["amount"] for t in r["transactions"]) == ["-0.29", "-19.99"]
+    r = queries.search_transactions(con, merchant="Initech",
+                                    amount_min=-0.29, amount_max=-0.29)
+    assert [t["amount"] for t in r["transactions"]] == ["-0.29"]
+    con.close()

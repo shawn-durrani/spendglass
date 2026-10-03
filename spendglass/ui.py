@@ -14,6 +14,7 @@ Security posture:
   state, plus this app's name and loopback address for the owner's other
   apps to link to) and /api/busy (whether a restart would cut work short,
   as fixed labels). Each discloses that something is so, never content.
+  No API schema is served at all: /openapi.json, /docs and /redoc are off.
 - This surface writes. Do not describe it as read-only. The write paths,
   none of which edit what the bank sent:
   * labels: merchant-identity decisions (/api/lookups/decide) into the
@@ -36,6 +37,7 @@ Security posture:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -46,6 +48,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 import webauthn as webauthn_lib
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
@@ -69,7 +72,7 @@ from .enrich import merchant_key, strip_noise
 from .lookup import (SETTING_DEFAULTS, decide, ensure_schema, get_settings,
                      identify_clear_merchants, lookup_merchants,
                      propagate_decisions, set_settings)
-from .store import Store
+from .store import Store, dollars_to_cents
 
 # Overridable so a second instance (e.g. against a test store) can run
 # beside the real one; the Host allowlist tracks whatever port is chosen.
@@ -133,13 +136,22 @@ def startup_banner(*, first_run: bool, secret_configured: bool, port,
                    secret: str) -> list[str]:
     """The startup banner, secret-safe after enrolment (issue #2).
 
-    The full recovery secret appears ONLY on a true first run - the one
-    moment the user genuinely needs to see it, before anything is enrolled.
-    After that it must never hit stdout again: redirected logs accumulate it
-    in plaintext, and a pasted server log (bug report, screen share) would
+    The full recovery secret appears ONLY on a true first run, and only when
+    the app made it up - the one moment the user genuinely needs to see it,
+    and no other way to learn it. A secret the owner set in
+    SPENDGLASS_RECOVERY_SECRET is never printed: they know it already, and
+    under the supervisor stdout is data/service.log (issue #95). After the
+    first run nothing is printed: redirected logs accumulate it in
+    plaintext, and a pasted server log (bug report, screen share) would
     leak it. Later starts say only which kind of secret is in force and how
     to reset a forgotten password."""
     bar = "─" * 64
+    if first_run and secret_configured:
+        return [bar,
+                f"First run: open http://127.0.0.1:{port} and set a password.",
+                "Use the recovery secret you set in SPENDGLASS_RECOVERY_SECRET. "
+                "It isn't printed here.",
+                bar]
     if first_run:
         return [bar,
                 f"First run: open http://127.0.0.1:{port} and set a password.",
@@ -166,7 +178,10 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
     `sibling_apps` feeds the header's row of links to the owner's other
     apps; build_app passes the configured ones, tests pass their own or
     none, so a test never asks a live service."""
-    app = FastAPI(title="spendglass", docs_url=None, redoc_url=None)
+    # No API map: nothing uses one, and /openapi.json answered without a
+    # session, listing every route to anyone who could reach the app (#98).
+    app = FastAPI(title="spendglass", docs_url=None, redoc_url=None,
+                  openapi_url=None)
     app.state.sibling_probe = app_links.SiblingProbe(sibling_apps or {})
 
     # Derived-table schemas the queries join against; safe and idempotent.
@@ -253,7 +268,8 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             raise HTTPException(status_code=400, detail=str(e))
         if not ok:
             raise HTTPException(status_code=403, detail="recovery secret does not match "
-                                "the one printed in the server terminal")
+                                "the one printed at startup or set in "
+                                "SPENDGLASS_RECOVERY_SECRET")
         response.set_cookie(COOKIE, auth.create_session(), httponly=True,
                             samesite="strict", max_age=24 * 3600)
         return {"ok": True}
@@ -261,7 +277,12 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
     @app.post("/api/login")
     async def login(request: Request, response: Response) -> dict:
         body = await request.json()
-        if not auth.check_password(body.get("password", "")):
+        # The hash takes a moment and the wait after a failure takes up to
+        # 3s. Neither runs on the event loop, which serves every request,
+        # so a wrong password slows only its own answer (#97).
+        if not await run_in_threadpool(auth.check_password,
+                                       body.get("password", "")):
+            await asyncio.sleep(auth.failure_delay())
             raise HTTPException(status_code=403, detail="wrong password")
         response.set_cookie(COOKIE, auth.create_session(), httponly=True,
                             samesite="strict", max_age=24 * 3600)
@@ -540,10 +561,15 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             where.append("t.date >= ?"); params.append(date_from)
         if date_to:
             where.append("t.date <= ?"); params.append(date_to)
-        if amount_min is not None:
-            where.append("t.amount_cents >= ?"); params.append(int(amount_min * 100))
-        if amount_max is not None:
-            where.append("t.amount_cents <= ?"); params.append(int(amount_max * 100))
+        try:
+            if amount_min is not None:
+                where.append("t.amount_cents >= ?")
+                params.append(dollars_to_cents(amount_min))
+            if amount_max is not None:
+                where.append("t.amount_cents <= ?")
+                params.append(dollars_to_cents(amount_max))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if theme:
             where.append(themes_mod.MATCH); params.append(theme)
         cond = " AND ".join(where)
@@ -1516,8 +1542,9 @@ tr:hover td{background:var(--accent-soft)}
     <p class="sub" id="gate-sub"></p>
     <div id="setup-form" class="hidden">
       <p style="font-size:13px">This sets the password you'll use from now on. Prove it's
-      you by pasting the <b>recovery secret</b> printed in the server terminal.</p>
-      <label>Recovery secret (from the terminal)</label>
+      you by pasting the <b>recovery secret</b>: the one the server printed when it
+      started, or the one you set in <code>SPENDGLASS_RECOVERY_SECRET</code>.</p>
+      <label>Recovery secret</label>
       <input id="secret" type="password" autocomplete="off">
       <label>Choose a password (min 8 characters)</label>
       <input id="new-password" type="password" autocomplete="new-password">
@@ -1724,7 +1751,7 @@ function showPassword(){
 function showReset(){
   $("setup-form").classList.remove("hidden");$("login-form").classList.add("hidden");
   $("pk-form").classList.add("hidden");
-  $("gate-sub").textContent="Reset — paste the recovery secret from the server terminal.";
+  $("gate-sub").textContent="Reset — paste the SPENDGLASS_RECOVERY_SECRET from .env. None there? Add one and restart first.";
 }
 
 /* ── passkeys (#22): base64url plumbing + the two ceremonies ─────────────── */
@@ -1858,14 +1885,22 @@ async function showMain(){
 }
 function renderBanner(h){
   const b=$("banner");b.innerHTML="";
-  const last=h.last_sync?new Date(h.last_sync.finished_at):null;
+  // The data is as old as the last sync that worked; the newest run may
+  // still be going or may have failed, and the banner says which (#94).
+  const last=h.last_success_at?new Date(h.last_success_at):null;
+  const run=h.last_sync;
   const ageH=last?(Date.now()-last)/36e5:Infinity;
   const stale=h.stale||ageH>26;
   b.insertAdjacentHTML("beforeend",
     `<span><span class="dot" style="background:${stale?"var(--warn-fg)":"var(--ok)"}"></span>
-     <b>${stale?"STALE":"Fresh"}</b> — last sync ${last?last.toLocaleString():"never"}</span>
+     <b>${stale?"STALE":"Fresh"}</b> — last good sync ${last?last.toLocaleString():"never"}</span>
      <span>${h.counts.transactions.toLocaleString()} transactions ·
      ${h.counts.accounts} accounts</span>`);
+  if(run&&run.status==="running")b.insertAdjacentHTML("beforeend",
+    `<span>a sync is running now</span>`);
+  else if(run&&run.status==="error")b.insertAdjacentHTML("beforeend",
+    `<span class="warnrow">⚠ The latest sync failed at
+     ${new Date(run.finished_at).toLocaleString()}</span>`);
   const bk=h.last_backup?new Date(h.last_backup):null;
   b.insertAdjacentHTML("beforeend",
     `<span>last backup ${bk?bk.toLocaleString():"never"}</span>`);

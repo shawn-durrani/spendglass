@@ -81,7 +81,7 @@ def test_merchant_key_strips_phones_and_rails():
 
 def test_monthly_subscription_detected(db):
     with Store(db) as s:
-        s.upsert_transactions(_monthly("Spotify", "-13.99"), "conn-bank-1")
+        s.upsert_transactions(_monthly("Globex Streaming", "-13.99"), "conn-bank-1")
         enrich.rebuild_merchants(s)
         assert enrich.detect_recurring(s) == 1
         row = s.con.execute("SELECT * FROM recurring_charges").fetchone()
@@ -127,13 +127,13 @@ def test_two_occurrences_never_recurring(db):
 
 def test_merchants_aggregate_and_preserve_llm_cache(db):
     with Store(db) as s:
-        s.upsert_transactions(_monthly("Spotify", "-13.99"), "conn-bank-1")
+        s.upsert_transactions(_monthly("Globex Streaming", "-13.99"), "conn-bank-1")
         enrich.rebuild_merchants(s)
         s.con.execute("UPDATE merchants SET llm_category='ENTERTAINMENT', "
-                      "llm_confidence=0.9 WHERE key='spotify'")
+                      "llm_confidence=0.9 WHERE key='globex streaming'")
         s.con.commit()
         enrich.rebuild_merchants(s)  # stats refresh must NOT clobber the cache
-        row = s.con.execute("SELECT * FROM merchants WHERE key='spotify'").fetchone()
+        row = s.con.execute("SELECT * FROM merchants WHERE key='globex streaming'").fetchone()
         assert row["llm_category"] == "ENTERTAINMENT"
         assert row["txn_count"] == 6
 
@@ -169,13 +169,13 @@ class _FakeAnthropic:
 
 def test_classification_caches_labels(db):
     with Store(db) as s:
-        s.upsert_transactions(_monthly("Spotify", "-13.99"), "conn-bank-1")
+        s.upsert_transactions(_monthly("Globex Streaming", "-13.99"), "conn-bank-1")
         enrich.rebuild_merchants(s)
         fake = _FakeAnthropic(label="EATING_OUT")
         out = enrich.classify_merchants(s, fake, poll_seconds=0)
         assert out["status"] == "ok" and out["classified"] == 1
         row = s.con.execute("SELECT llm_category, llm_model FROM merchants "
-                            "WHERE key='spotify'").fetchone()
+                            "WHERE key='globex streaming'").fetchone()
         assert row["llm_category"] == "EATING_OUT"
         assert row["llm_model"] == enrich.MODEL
         # request shape: batch of ONE (unique merchant, not 6 transactions)
@@ -190,11 +190,11 @@ def test_classification_caches_labels(db):
 
 def test_classification_rejects_labels_outside_taxonomy(db):
     with Store(db) as s:
-        s.upsert_transactions(_monthly("Spotify", "-13.99"), "conn-bank-1")
+        s.upsert_transactions(_monthly("Globex Streaming", "-13.99"), "conn-bank-1")
         enrich.rebuild_merchants(s)
         out = enrich.classify_merchants(s, _FakeAnthropic(label="MADE_UP"), poll_seconds=0)
         assert out["invalid"] == 1 and out["classified"] == 0
-        row = s.con.execute("SELECT llm_category FROM merchants WHERE key='spotify'").fetchone()
+        row = s.con.execute("SELECT llm_category FROM merchants WHERE key='globex streaming'").fetchone()
         assert row["llm_category"] is None  # garbage never lands in the cache
 
 
@@ -214,7 +214,7 @@ def test_keyless_cli_degrades(db, monkeypatch, capsys):
 
 def test_recurring_tool_reads_derived_table(db):
     with Store(db) as s:
-        s.upsert_transactions(_monthly("Spotify", "-13.99"), "conn-bank-1")
+        s.upsert_transactions(_monthly("Globex Streaming", "-13.99"), "conn-bank-1")
         enrich.rebuild_merchants(s)
         enrich.detect_recurring(s)
     con = queries.open_readonly(db)

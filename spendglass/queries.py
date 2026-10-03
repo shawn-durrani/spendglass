@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import overrides as _overrides
-from .store import Store
+from .store import Store, dollars_to_cents
 
 STALE_AFTER_HOURS = 26  # a daily sync plus slack; beyond this, shout
 
@@ -66,9 +66,11 @@ def freshness(db_path: Path | str) -> dict:
     with Store(db_path) as s:
         h = s.health()
     warnings: list[str] = []
-    as_of = None
-    if h["last_sync"] and h["last_sync"]["status"] == "ok":
-        as_of = h["last_sync"]["finished_at"]
+    # The data is as old as the newest sync that worked. The newest run may
+    # still be going, or may have failed, and the note says which (#94).
+    as_of = h["last_success_at"]
+    last = h["last_sync"]
+    if as_of:
         age_h = (
             datetime.now(timezone.utc) - datetime.fromisoformat(as_of)
         ).total_seconds() / 3600
@@ -77,8 +79,22 @@ def freshness(db_path: Path | str) -> dict:
                 f"data is {age_h:.0f} hours old — run "
                 "`.venv/bin/python -m spendglass.sync` before trusting totals"
             )
+        if last["status"] == "error":
+            warnings.append(
+                f"the latest sync failed at {last['finished_at']}, so "
+                f"figures are as of the last good one, at {as_of}")
+    elif last is None:
+        warnings.append(
+            "no sync has run yet, so the store is empty — run "
+            "`.venv/bin/python -m spendglass.sync`")
+    elif last["status"] == "running":
+        warnings.append(
+            f"the first sync, started at {last['started_at']}, hasn't "
+            "finished, so the store may be incomplete")
     else:
-        warnings.append("no successful sync has ever completed — the store is empty or broken")
+        warnings.append(
+            "no sync has worked yet, and the latest one failed at "
+            f"{last['finished_at']}, so the store may be empty or incomplete")
     for c in h["connections"]:
         warnings.extend(f"{c['institution']}: {w}" for w in c["warnings"])
     return {"as_of": as_of, "stale": bool(warnings), "staleness_warnings": warnings}
@@ -139,9 +155,11 @@ def search_transactions(
     if date_to:
         where.append("t.date <= ?"); params.append(date_to)
     if amount_min is not None:
-        where.append("t.amount_cents >= ?"); params.append(int(amount_min * 100))
+        where.append("t.amount_cents >= ?")
+        params.append(dollars_to_cents(amount_min))
     if amount_max is not None:
-        where.append("t.amount_cents <= ?"); params.append(int(amount_max * 100))
+        where.append("t.amount_cents <= ?")
+        params.append(dollars_to_cents(amount_max))
     cond = " AND ".join(where)
 
     totals = con.execute(

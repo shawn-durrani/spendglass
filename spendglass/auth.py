@@ -1,9 +1,9 @@
 """UI auth — recovery-secret bootstrap, durable password, hashed sessions.
 
-- A RECOVERY SECRET is printed to the terminal at startup (stable if
-  SPENDGLASS_RECOVERY_SECRET is set in .env, random per start otherwise). It
-  gates first-run password enrollment and password reset — never everyday
-  login.
+- A RECOVERY SECRET gates first-run password enrollment and password
+  reset — never everyday login. It's stable if SPENDGLASS_RECOVERY_SECRET
+  is set in .env, and random per start otherwise. Only a random one is
+  printed, and only on a first run (ui.startup_banner).
 - The everyday login is a durable PASSWORD (scrypt-hashed in
   data/ui_auth.json, which is gitignored via data/). It survives restarts.
 - A successful login sets an opaque, expiring, server-revocable session
@@ -81,17 +81,20 @@ class Auth:
         return True
 
     def check_password(self, password: str) -> bool:
+        """Never waits itself. A failure counts toward failure_delay(), and
+        the caller holds its answer that long without blocking (#97)."""
         if self.first_run:
             return False
         stored = json.loads(self.auth_file.read_text())
         candidate = _hash(password, bytes.fromhex(stored["salt"]))
         ok = hmac.compare_digest(candidate, stored["hash"])
-        if not ok:
-            self._failed_logins += 1
-            time.sleep(min(0.3 * self._failed_logins, 3.0))  # slow brute force
-        else:
-            self._failed_logins = 0
+        self._failed_logins = 0 if ok else self._failed_logins + 1
         return ok
+
+    def failure_delay(self) -> float:
+        """Seconds to hold a failed sign-in's answer, to slow guessing:
+        0.3s for each failure in a row, up to 3s."""
+        return min(0.3 * self._failed_logins, 3.0)
 
     # ── sessions (stored as digests, revocable, expiring) ───────────────────
 

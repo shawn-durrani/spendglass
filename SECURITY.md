@@ -24,7 +24,8 @@ short list of its own addresses. That stops
 where a web page you visit points its own name at your computer to
 reach the app. A `POST` request that the browser marks as coming from another
 site is refused, and the session cookie is `HttpOnly` with `SameSite`
-set to `Strict`.
+set to `Strict`. The app serves no map of its own API, so someone who
+hasn't signed in can't list its routes.
 
 ### The lock screen
 
@@ -123,11 +124,14 @@ whole of `.env`. No code in either of them uses the key, but anything
 that can read their memory has it. The web app also reads the
 Anthropic key for each miner run, so that key sits in its memory too.
 
-The first run prints the recovery secret in full, including one you
-set yourself in `SPENDGLASS_RECOVERY_SECRET`. Later starts only say
+The first run prints the recovery secret in full when the app made it
+up, because you can't learn it any other way. A secret you set in
+`SPENDGLASS_RECOVERY_SECRET` is never printed. Later starts only say
 which kind of secret is in force. Under the supervisor that first
-banner lands in `data/service.log`. Treat terminal output and server
-logs as sensitive, and don't paste them unredacted into a public issue.
+banner lands in `data/service.log`. The log rolls over at 10MB and
+keeps one older copy, so an old banner ages out. Treat terminal output
+and server logs as sensitive, and don't paste them unredacted into a
+public issue.
 
 The backup mirror sits outside this protection. A folder you set in
 `SPENDGLASS_BACKUP_MIRROR_DIR` gets a full copy of the store with each
@@ -138,8 +142,8 @@ or anything else in it.
 
 Everything in `data/` is sensitive, and git ignores all of it. It holds
 the store and its `-wal` and `-shm` files, the backups, the password,
-session and passkey files, and the service log when the supervisor
-runs the app. `SPENDGLASS_DB` moves the whole folder with the store.
+session and passkey files, and the service log and its older copy when
+the supervisor runs the app. `SPENDGLASS_DB` moves the whole folder with the store.
 
 At startup the web app makes the folder owner-only, `0700`, and every
 file and folder in it `0600` or `0700`. Everything it writes after that

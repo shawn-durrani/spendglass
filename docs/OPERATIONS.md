@@ -15,11 +15,16 @@ ops/install-supervisor.sh
 
 The script hands Spendglass to launchd as an agent named
 `dev.spendglass.server`, which runs `start.sh`. It first stops any copy
-you started by hand on the port, so launchd owns the one real copy, and
-it's safe to run again. From then on the app starts when you log in,
+you started by hand on port 8903, so launchd owns the one real copy, and
+it's safe to run again. If another program holds 8903, the script
+changes nothing and tells you which one, so you can stop it yourself. The agent always serves on 8903, whatever
+`SPENDGLASS_UI_PORT` says, as [docs/CONFIG.md](CONFIG.md#the-two-environment-only-settings)
+explains. From then on the app starts when you log in,
 restarts within seconds if it exits, and comes back after a reboot once
 you log in. If it keeps crashing, launchd waits ten seconds between
-tries. Its output goes to `data/service.log`.
+tries. Its output goes to `data/service.log`. Once that log passes
+10MB, the next start moves it to `data/service.log.1` and begins a
+fresh one, so the two together stay near 20MB.
 
 ## Everyday commands
 
@@ -80,7 +85,8 @@ hours by default, measured from the last good sync, it runs sync and
 then enrichment, each as its own process. You set the interval in the
 admin panel. After a failed sync it tries again 15 minutes later.
 
-The web app's banner shows the last sync and the last backup. Each
+The web app's banner shows the last good sync and the last backup. It
+also says when a sync is running or the latest one failed. Each
 agent tool's answer says how fresh the data is, as
 [docs/MCP.md](MCP.md#freshness) explains, so a store that has stopped
 syncing says so.

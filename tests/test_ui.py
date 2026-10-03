@@ -38,6 +38,19 @@ def test_data_requires_session(ui):
         assert client.get(path).status_code == 401
 
 
+def test_no_api_map_is_served(ui):
+    """Issue #98: /openapi.json answered without a session and listed every
+    route. Nothing uses it, so it's off, signed in or not, like the
+    interactive pages that sit on top of it."""
+    client, _ = ui
+    paths = ("/openapi.json", "/docs", "/redoc", "/docs/oauth2-redirect")
+    for path in paths:
+        assert client.get(path).status_code == 404, path
+    _enroll(client)
+    for path in paths:
+        assert client.get(path).status_code == 404, path
+
+
 def test_first_run_setup_requires_recovery_secret(ui):
     client, _ = ui
     r = client.post("/api/setup", json={"recovery_secret": "wrong", "password": PASSWORD})
@@ -271,6 +284,49 @@ def test_sort_by_amount(ui):
     assert cents == sorted(cents)
 
 
+def test_amount_filters_are_exact_to_the_cent(ui):
+    """Issue #93: the route turned dollars into cents with int(x * 100), so
+    a lower bound of -19.99 left out a -19.99 row and an upper bound of
+    -0.29 let a -0.28 one in. Something that isn't a number is a 400."""
+    client, auth = ui
+    _enroll(client)
+    rows = []
+    for i, amount in enumerate(("-19.99", "-0.29", "-0.28")):
+        row = dict(TXNS[0])
+        row.update(id=f"txn-awkward-{i}", amount=amount,
+                   description=f"GLOBEX {i}", merchantName="Globex")
+        rows.append(row)
+    with Store(auth.auth_file.parent / "store.db") as s:
+        s.upsert_transactions(rows, "conn-bank-1")
+
+    def amounts(**params):
+        r = client.get("/api/transactions", params={"q": "globex", **params})
+        assert r.status_code == 200, r.text
+        return sorted(x["amount_cents"] for x in r.json()["data"])
+
+    assert amounts(amount_min=-19.99) == [-1999, -29, -28]
+    assert amounts(amount_max=-0.29) == [-1999, -29]
+    assert amounts(amount_min=-0.29, amount_max=-0.29) == [-29]
+    for bad in ("nan", "inf"):
+        r = client.get("/api/transactions", params={"amount_min": bad})
+        assert r.status_code == 400, (bad, r.status_code)
+
+
+def test_health_reports_the_last_good_sync_while_one_runs(ui):
+    """Issue #94: the banner read the newest run's finish time, which is
+    empty while a sync runs, and a failed run's time as the last sync."""
+    client, auth = ui
+    _enroll(client)
+    with Store(auth.auth_file.parent / "store.db") as s:
+        s.finish_sync_run(s.start_sync_run(), "ok", {})
+        s.start_sync_run()
+    h = client.get("/api/health").json()
+    assert h["last_success_at"] and h["last_sync"]["finished_at"] is None
+    assert h["stale"] is False
+    page = client.get("/").text
+    assert "h.last_success_at" in page and "h.last_sync.finished_at" not in page
+
+
 def test_query_endpoints_reject_mutating_methods(ui):
     """Query endpoints take GET only: mutating methods are refused with 405."""
     client, _ = ui
@@ -369,6 +425,19 @@ def test_banner_names_the_configured_secret_without_printing_it():
     assert "SPENDGLASS_RECOVERY_SECRET" in later
 
 
+def test_first_run_never_prints_a_secret_the_owner_set():
+    """Issue #95: a secret set in SPENDGLASS_RECOVERY_SECRET was printed on
+    the first run too, into data/service.log under the supervisor. The
+    owner knows it already, so the banner names the setting instead."""
+    from spendglass.ui import startup_banner
+    secret = "owner-chosen-secret-123"
+    first = "\n".join(startup_banner(first_run=True, secret_configured=True,
+                                     port=8903, secret=secret))
+    assert secret not in first
+    assert "SPENDGLASS_RECOVERY_SECRET" in first
+    assert "set a password" in first
+
+
 def test_store_dir_becomes_owner_only(tmp_path):
     """The store directory is the sensitive unit: DB, auth records, and any
     redirected service log live there, so it goes owner-only at startup."""
@@ -428,3 +497,62 @@ def test_store_dir_contents_become_owner_only(tmp_path):
     for p in (d / "store.db", d / "server.log", d / "backups" / "snap.db"):
         assert stat.S_IMODE(p.stat().st_mode) == 0o600
     assert stat.S_IMODE(outside.stat().st_mode) == 0o644
+
+
+# ── issue #97: a failed sign-in waits without stalling the server ──────────
+
+def test_a_failed_sign_in_never_sleeps_the_server(ui, monkeypatch):
+    """Auth used to call time.sleep() on a failure, inside an async handler,
+    so the whole server stopped for up to 3s. It only counts now."""
+    import time as time_mod
+
+    client, auth = ui
+    _enroll(client)
+
+    def no_sleeping(_seconds):
+        raise AssertionError("a blocking sleep on the sign-in path")
+
+    monkeypatch.setattr(time_mod, "sleep", no_sleeping)
+    for n in range(1, 13):
+        assert auth.check_password("wrong") is False
+        assert auth.failure_delay() == pytest.approx(min(0.3 * n, 3.0))
+    assert auth.check_password(PASSWORD) is True
+    assert auth.failure_delay() == 0
+
+
+def test_other_requests_answer_while_a_failed_sign_in_waits(ui):
+    """While a wrong password's answer is held back, the server keeps
+    serving: another request finishes long before it."""
+    import asyncio
+    import time as time_mod
+
+    import httpx
+
+    client, auth = ui
+    _enroll(client)
+    auth._failed_logins = 2  # so this failure, the third, waits 0.9s
+    finished: dict[str, float] = {}
+
+    async def run():
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(transport=transport,
+                                     base_url="http://127.0.0.1:8903") as c:
+            async def login():
+                r = await c.post("/api/login", json={"password": "wrong"})
+                finished["login"] = time_mod.monotonic()
+                return r
+
+            async def other():
+                await asyncio.sleep(0.1)  # the login is already waiting
+                r = await c.get("/api/session")
+                finished["other"] = time_mod.monotonic()
+                return r
+
+            start = time_mod.monotonic()
+            failed, ok = await asyncio.gather(login(), other())
+            return start, failed, ok
+
+    start, failed, ok = asyncio.run(run())
+    assert failed.status_code == 403 and ok.status_code == 200
+    assert finished["login"] - start >= 0.85
+    assert finished["other"] - start < 0.6, finished

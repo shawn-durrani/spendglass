@@ -71,3 +71,41 @@ def test_renewing_soon_window(con):
     soon = {a["merchant_key"] for a in o["renewing_soon"]}
     assert "vendor a monthly" in soon          # 9 days out
     assert "vendor b yearly" not in soon       # next June
+
+
+def test_wins_and_subscriptions_agree_on_stopped(tmp_path):
+    """Issue #108: the wins card counted a charge stopped after twice its
+    interval, the subscriptions list after max(2 x interval, interval + 7).
+    For a six-day weekly charge they disagreed. Both now ask one rule."""
+    from datetime import timedelta
+
+    from spendglass import trends
+
+    with Store(tmp_path / "agree.db") as s:
+        enrich_schema(s)
+        lookup_schema(s)
+        cases = []
+        for interval in (6, 7, 14, 30, 91, 365):
+            edge = int(max(2 * interval, interval + 7))
+            for days in (edge - 1, edge, edge + 1):
+                key = f"initech {interval}d {days}"
+                last = (TODAY - timedelta(days=days)).isoformat()
+                s.con.execute(
+                    """INSERT INTO recurring_charges (merchant_key,
+                       display_name, cadence, occurrences, typical_amount,
+                       amount_min, amount_max, first_seen, last_seen,
+                       next_expected, median_interval_days)
+                       VALUES (?,?,'monthly',6,'-9.99','-9.99','-9.99',
+                               '2024-01-01',?,?,?)""",
+                    (key, key, last, last, interval))
+                cases.append((key, days > edge))
+        s.con.commit()
+        listed_stopped = {x["merchant_key"]
+                          for x in subscriptions.overview(s.con, today=TODAY)["stopped"]}
+        won = {w["merchant"] for w in trends.wins(s.con, today=TODAY)["wins"]
+               if w["kind"] == "cancelled_recurring"}
+
+    for key, expect in cases:
+        assert (key in won) == (key in listed_stopped) == expect, key
+    # The case that used to split: a six-day charge last seen 13 days ago.
+    assert "initech 6d 13" not in won

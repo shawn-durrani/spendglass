@@ -24,7 +24,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -112,6 +112,26 @@ def to_cents(value: str | None) -> int | None:
         return int(Decimal(str(value)) * 100)
     except InvalidOperation:
         return None
+
+
+# SQLite's INTEGER range. A bound past it matches the same rows as one at it.
+_SQLITE_MIN, _SQLITE_MAX = -(2**63), 2**63 - 1
+
+
+def dollars_to_cents(dollars: float | str) -> int:
+    """A dollar figure from a caller, such as a filter bound, in whole cents
+    (issue #93). It's read as a decimal from its shortest text form, so 0.29
+    is 29 cents, where int(0.29 * 100) is 28. A fraction of a cent rounds to
+    the nearest cent, half away from zero. Anything that isn't a finite
+    number raises ValueError."""
+    try:
+        value = Decimal(str(dollars))
+    except InvalidOperation:
+        raise ValueError(f"not an amount: {dollars!r}") from None
+    if not value.is_finite():
+        raise ValueError(f"not an amount: {dollars!r}")
+    cents = int((value * 100).to_integral_value(rounding=ROUND_HALF_UP))
+    return max(_SQLITE_MIN, min(_SQLITE_MAX, cents))
 
 
 class Store:
@@ -414,6 +434,12 @@ class Store:
         last_run = self.con.execute(
             "SELECT * FROM sync_runs ORDER BY id DESC LIMIT 1"
         ).fetchone()
+        # The newest run can be one in progress or one that failed, so the
+        # data's own age comes from the newest run that worked (issue #94).
+        last_ok = self.con.execute(
+            "SELECT finished_at FROM sync_runs WHERE status='ok' "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
         connections = []
         for c in self.con.execute("SELECT * FROM connections").fetchall():
             warnings = []
@@ -451,6 +477,8 @@ class Store:
             "db": str(self.db_path),
             "counts": counts,
             "last_sync": dict(last_run) if last_run else None,
+            "last_success_at": last_ok["finished_at"] if last_ok else None,
             "connections": connections,
-            "stale": last_run is None or last_run["status"] != "ok",
+            # A sync in progress doesn't make the last good one stale.
+            "stale": last_ok is None or last_run["status"] == "error",
         }
