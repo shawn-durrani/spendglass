@@ -63,6 +63,7 @@ from webauthn.helpers.structs import (AuthenticatorAttachment,
 from . import app_links
 from . import busy as busy_mod
 from . import capabilities
+from . import overrides as overrides_mod
 from . import passkeys as passkeys_mod
 from . import themes as themes_mod
 from .auth import Auth
@@ -192,6 +193,7 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
             ensure_schema(_s)
             _transfers_schema(_s)
             themes_mod.ensure_schema(_s)
+            overrides_mod.ensure_schema(_s)
     except Exception:
         pass  # a store that predates sync entirely; queries fall back
 
@@ -912,9 +914,10 @@ def create_app(db_path: Path, auth: Auth, propagator=None,
         return {"ok": True, "started": miner}
 
     # ── visualisation data (GET) and theme editing (writes theme tables) ────
-    # Effective category: user override > identity-informed model > bank.
-    _ECAT = ("COALESCE(ml.resolved_category, m.llm_category, m.cdr_category, "
-             "t.category)")
+    # Effective category: user override > deterministic rule (issue #90) >
+    # identity-informed model > bank. Mirrors trends.ECAT.
+    _ECAT = (f"COALESCE(ml.resolved_category, {overrides_mod.OCAT}, "
+             "m.llm_category, m.cdr_category, t.category)")
     _VIZ_JOIN = """FROM transactions t
         LEFT JOIN merchants m ON m.key = t.merchant_key
         LEFT JOIN merchant_lookups ml ON ml.merchant_key = t.merchant_key
@@ -1284,14 +1287,27 @@ def build_app() -> FastAPI:
     autosync.start(cfg.db_path, cfg.autosync)
 
     # Same principle for restore points: snapshot at startup and on a timer.
+    # The startup snapshot runs HERE, synchronously, before create_app below
+    # — not via backup_mod.start()'s own first tick, which fires on its own
+    # scheduler thread with nothing to order it against this one. Calling
+    # start() first and create_app() second (the previous shape) left "back
+    # up before migration" an unenforced race between the two threads, not
+    # the guarantee the #90 override-rules PR described (#91 follow-up).
+    # Skipped, like every tick, when nothing has changed since the newest
+    # snapshot.
     from . import backup as backup_mod
+    if backup_mod.changed_since_last_snapshot(cfg.db_path):
+        backup_mod.backup(cfg.db_path, cfg.backup_keep, cfg.backup_mirror_dir)
+
+    app = create_app(cfg.db_path, auth, propagator=live_propagator,
+                     autosync_env=cfg.autosync,
+                     backup_interval_hours=cfg.backup_interval_hours,
+                     sibling_apps=cfg.sibling_apps)
+
+    # The periodic timer for every backup after this one.
     backup_mod.start(cfg.db_path, cfg.backup_interval_hours,
                      cfg.backup_keep, cfg.backup_mirror_dir)
-
-    return create_app(cfg.db_path, auth, propagator=live_propagator,
-                      autosync_env=cfg.autosync,
-                      backup_interval_hours=cfg.backup_interval_hours,
-                      sibling_apps=cfg.sibling_apps)
+    return app
 
 
 def main() -> None:

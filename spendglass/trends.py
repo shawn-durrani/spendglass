@@ -16,11 +16,14 @@ import sqlite3
 import statistics
 from datetime import date, timedelta
 
+from . import overrides as _overrides
 from .store import to_cents
 
-# Effective category: user override > identity-informed model > bank.
-ECAT = ("COALESCE(ml.resolved_category, m.llm_category, m.cdr_category, "
-        "t.category)")
+# Effective category: user override > deterministic rule (issue #90, fixes
+# known bank mislabelling — e.g. loan interest filed as BANK_FEES) >
+# identity-informed model > bank.
+ECAT = (f"COALESCE(ml.resolved_category, {_overrides.OCAT}, "
+        "m.llm_category, m.cdr_category, t.category)")
 JOIN = """FROM transactions t
     LEFT JOIN merchants m ON m.key = t.merchant_key
     LEFT JOIN merchant_lookups ml ON ml.merchant_key = t.merchant_key
@@ -188,13 +191,17 @@ def price_creep(con: sqlite3.Connection, min_delta_cents: int = 50) -> dict:
 
 def pareto(con: sqlite3.Connection, days: int = 90, cut: float = 0.8,
            max_rows: int = 12) -> dict:
+    """Variable (discretionary) spend only — recurring merchants are
+    excluded as their own device (price_creep/subscriptions), and loan
+    interest is excluded too: it's a committed cost (fixed_floor counts it
+    there), never something to 'cut back on' like a merchant visit."""
     since = (date.today() - timedelta(days=days)).isoformat()
     recurring = {r["merchant_key"] for r in con.execute(
         "SELECT merchant_key FROM recurring_charges")}
     rows = con.execute(
         f"""SELECT t.merchant_key mk, {DISPLAY} n,
                    ABS(SUM(t.amount_cents)) cents, COUNT(*) txns
-            {JOIN} WHERE {SPEND} AND t.date >= ?
+            {JOIN} WHERE {SPEND} AND t.date >= ? AND {ECAT} != 'LOAN_INTEREST'
             GROUP BY t.merchant_key ORDER BY cents DESC""", [since]).fetchall()
     rows = [r for r in rows if r["mk"] not in recurring]
     total = sum(r["cents"] or 0 for r in rows) or 1
@@ -316,7 +323,10 @@ def fixed_floor(con: sqlite3.Connection, months_back: int = 24) -> dict:
     """The committed floor counts more than consumption: recurring unmatched
     outbound transfers (scheduled family contributions, standing obligations)
     belong in 'fixed' even though they are never consumption spend. Matched
-    internal moves stay out entirely."""
+    internal moves stay out entirely. Loan/credit interest (issue #90) is
+    fixed too — it's a committed cost of debt already taken on, not a
+    month-to-month discretionary choice, even on months it isn't detected
+    as a regular recurring charge (the amount moves with the balance)."""
     months = _complete_months(con, months_back)
     if not months:
         return {"available": False, "reason": "no complete months"}
@@ -332,7 +342,7 @@ def fixed_floor(con: sqlite3.Connection, months_back: int = 24) -> dict:
                   AND tl.txn_id IS NULL AND {ECAT} != 'TRANSFER_IN'
                   AND substr(t.date,1,7) IN ({qmarks})
                 GROUP BY mo, t.merchant_key""", months):
-        if r["mk"] in recurring:
+        if r["mk"] in recurring or r["cat"] == "LOAN_INTEREST":
             bucket = "fixed"
         elif r["cat"] in ("TRANSFER_OUT", "LOAN_PAYMENTS"):
             continue  # one-off unmatched transfers aren't floor or variable

@@ -11,6 +11,7 @@ import pytest
 from spendglass import trends
 from spendglass.enrich import ensure_schema as enrich_schema
 from spendglass.lookup import ensure_schema as lookup_schema
+from spendglass.overrides import ensure_schema as overrides_schema
 from spendglass.store import Store
 from spendglass.transfers import ensure_schema as transfers_schema
 
@@ -31,6 +32,7 @@ def con(tmp_path):
         enrich_schema(s)
         lookup_schema(s)
         transfers_schema(s)
+        overrides_schema(s)
 
         def txn(i, day, cents, key, cat):
             s.con.execute(
@@ -104,6 +106,7 @@ def test_loan_interest_counts_as_spend_principal_does_not(tmp_path):
         enrich_schema(s)
         lookup_schema(s)
         transfers_schema(s)
+        overrides_schema(s)
         for i, (key, sub, cents) in enumerate([
                 ("interest charged", "Mortgage Interest", 400000),
                 ("loan repayment", "Principal", 150000)]):

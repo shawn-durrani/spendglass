@@ -18,6 +18,16 @@ Two properties the MCP layer leans on, each with its real limit stated:
 
 All aggregation is SQL over integer cents, so the model reads answers, it
 never does arithmetic.
+
+3. EFFECTIVE, NOT RAW, CATEGORY: `t.category`/`t.custom_category` are the
+   bank's own CDR code, known to mislabel some merchants (issue #90) — loan
+   interest as BANK_FEES, bottle shops as Eating Out, and so on. The tools
+   below filter and group by the EFFECTIVE category/subcategory (the same
+   `COALESCE(ml.resolved_category, override, llm_category, cdr_category,
+   t.category)` formula trends.py and ui.py already use), so a search or
+   summary never repeats a mislabel the user already fixed. The raw bank
+   value is never hidden — it is always returned too, under a `raw_`
+   prefix, so "what did the bank actually send" stays one field away.
 """
 
 from __future__ import annotations
@@ -26,9 +36,21 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import overrides as _overrides
 from .store import Store, dollars_to_cents
 
 STALE_AFTER_HOURS = 26  # a daily sync plus slack; beyond this, shout
+
+# Effective category/subcategory: user override > deterministic rule
+# (issue #90) > identity-informed model > bank. Mirrors trends.ECAT and
+# ui.py's _ECAT; duplicated locally (rather than imported) because this
+# module's callers never need trends.py's transfer-matching JOIN.
+ECAT = (f"COALESCE(ml.resolved_category, {_overrides.OCAT}, "
+        "m.llm_category, m.cdr_category, t.category)")
+ESUB = f"COALESCE(ml.resolved_subcategory, {_overrides.OSUB})"
+ENRICH_JOIN = """LEFT JOIN merchants m ON m.key = t.merchant_key
+    LEFT JOIN merchant_lookups ml ON ml.merchant_key = t.merchant_key
+      AND ml.status IN ('auto','approved','overridden')"""
 
 
 def open_readonly(db_path: Path | str) -> sqlite3.Connection:
@@ -119,7 +141,11 @@ def search_transactions(
     if merchant:
         where.append("t.merchant_name LIKE ?"); params.append(f"%{merchant}%")
     if category:
-        where.append("t.category = ?"); params.append(category)
+        # Effective category (issue #90/#91): a search for 'ALCOHOL' must
+        # find the BWS/Liquorland/Dan Murphy's rows even though the bank
+        # filed them as EATING_OUT. Filter on raw_category explicitly if
+        # that bank code is what's wanted instead.
+        where.append(f"{ECAT} = ?"); params.append(category)
     if direction:
         where.append("t.direction = ?"); params.append(direction)
     if status:
@@ -137,14 +163,18 @@ def search_transactions(
     cond = " AND ".join(where)
 
     totals = con.execute(
-        f"SELECT COUNT(*) n, COALESCE(SUM(amount_cents),0) s FROM transactions t WHERE {cond}",
+        f"""SELECT COUNT(*) n, COALESCE(SUM(t.amount_cents),0) s
+            FROM transactions t {ENRICH_JOIN} WHERE {cond}""",
         params,
     ).fetchone()
     rows = con.execute(
         f"""SELECT t.id, t.date, t.description, t.merchant_name, t.amount,
-                   t.direction, t.category, t.custom_category, t.status,
-                   a.name AS account_name
+                   t.direction, t.status, a.name AS account_name,
+                   {ECAT} AS category, {ESUB} AS subcategory,
+                   t.category AS raw_category,
+                   t.custom_category AS raw_custom_category
             FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id
+            {ENRICH_JOIN}
             WHERE {cond} ORDER BY t.date DESC, t.id LIMIT ?""",
         [*params, limit],
     ).fetchall()
@@ -165,7 +195,12 @@ def spending_summary(
     top: int = 25,
 ) -> dict:
     groups = {
-        "category": "COALESCE(t.category, '(uncategorised)')",
+        # Effective category/subcategory (issue #90/#91) — what the bank
+        # sent, corrected by the user's own overrides and lookups. Group by
+        # 'raw_category' explicitly for the bank's own, uncorrected CDR code.
+        "category": f"COALESCE({ECAT}, '(uncategorised)')",
+        "subcategory": f"COALESCE({ESUB}, '(no subcategory)')",
+        "raw_category": "COALESCE(t.category, '(uncategorised)')",
         "merchant": "COALESCE(t.merchant_name, '(no merchant)')",
         "month": "substr(t.date, 1, 7)",
         "account": "COALESCE(a.name, t.account_id)",
@@ -190,6 +225,7 @@ def spending_summary(
         f"""SELECT {key} AS grp, COUNT(*) n,
                    COALESCE(SUM(t.amount_cents),0) sum_cents
             FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id
+            {ENRICH_JOIN}
             WHERE {cond}
             GROUP BY {key}
             ORDER BY ABS(SUM(t.amount_cents)) DESC
@@ -198,7 +234,7 @@ def spending_summary(
     ).fetchall()
     total = con.execute(
         f"SELECT COALESCE(SUM(t.amount_cents),0) s, COUNT(*) n FROM transactions t "
-        f"LEFT JOIN accounts a ON a.id = t.account_id WHERE {cond}",
+        f"LEFT JOIN accounts a ON a.id = t.account_id {ENRICH_JOIN} WHERE {cond}",
         params,
     ).fetchone()
     return {
