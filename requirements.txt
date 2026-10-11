@@ -4,7 +4,7 @@
 httpx>=0.28.1
 pytest>=9.1.1
 fastapi>=0.141.1
-uvicorn>=0.53.0
+uvicorn>=0.54.0
 mcp>=2.2.0
 # Merchant identification. Capped at <2: a major version changes what the
 # SDK accepts, so the next one is its own reviewed change.
